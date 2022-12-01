@@ -4,6 +4,7 @@ use goblin::elf::*;
 use goblin::strtab::Strtab;
 use libc::{self, c_void};
 use std::arch::asm;
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::prelude::*;
@@ -23,10 +24,24 @@ unsafe extern "C" fn gtod_trampoline() {
 }
 */
 
+extern "C" fn my_clockgettime(clockid: libc::clockid_t, ts: *mut libc::timespec) -> u32 {
+    println!("my clockgettime {} {:?}!", clockid, ts);
+    if !ts.is_null() {
+        unsafe {
+            (*ts).tv_sec = 111;
+            (*ts).tv_nsec = 222;
+        }
+    }
+    return 0;
+}
+
 extern "C" fn my_gettimeofday(tp: *mut libc::timeval, tz: *mut c_void) {
-    unsafe {
-        (*tp).tv_sec = 999;
-        (*tp).tv_usec = 1234;
+    println!("my gettimeofday {:?} {:?}", tp, tz);
+    if !tp.is_null() {
+        unsafe {
+            (*tp).tv_sec = 333;
+            (*tp).tv_usec = 444;
+        }
     }
 }
 
@@ -83,28 +98,27 @@ fn write_vdso(buf: &Vec<u8>) {
     tmp.write_all(&buf).unwrap();
 }
 
-fn overwrite(range: &Range, address: u64, size: u64) {
+fn overwrite(range: &Range, address: u64, dst_address: u64, size: u64) {
     let addr = (range.start as u64) + address;
     println!("Writing, addr {:x}", addr);
     unsafe {
+        /*
         std::ptr::write_bytes((addr + 0) as *mut u8, 0xC3, 1); // RET
         std::ptr::write_bytes((addr + 1) as *mut u8, 0x90, (size - 1) as usize);
-        // NOP
-        /*
+        */
         std::ptr::write_bytes((addr + 0) as *mut u8, 0x48, 1);
         std::ptr::write_bytes((addr + 1) as *mut u8, 0xB8, 1);
-        std::ptr::write_bytes((addr + 2) as *mut u8, ((addr >> 0) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 3) as *mut u8, ((addr >> 8) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 4) as *mut u8, ((addr >> 16) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 5) as *mut u8, ((addr >> 24) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 6) as *mut u8, ((addr >> 32) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 7) as *mut u8, ((addr >> 40) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 8) as *mut u8, ((addr >> 48) & 0xFF) as u8, 1);
-        std::ptr::write_bytes((addr + 9) as *mut u8, ((addr >> 56) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 2) as *mut u8, ((dst_address >> 0) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 3) as *mut u8, ((dst_address >> 8) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 4) as *mut u8, ((dst_address >> 16) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 5) as *mut u8, ((dst_address >> 24) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 6) as *mut u8, ((dst_address >> 32) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 7) as *mut u8, ((dst_address >> 40) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 8) as *mut u8, ((dst_address >> 48) & 0xFF) as u8, 1);
+        std::ptr::write_bytes((addr + 9) as *mut u8, ((dst_address >> 56) & 0xFF) as u8, 1);
         std::ptr::write_bytes((addr + 10) as *mut u8, 0xFF, 1);
         std::ptr::write_bytes((addr + 11) as *mut u8, 0xE0, 1);
         std::ptr::write_bytes((addr + 12) as *mut u8, 0x90, 2);
-        */
     }
 }
 fn mess_vdso(buf: Vec<u8>, range: &Range) {
@@ -130,17 +144,51 @@ fn mess_vdso(buf: Vec<u8>, range: &Range) {
         println!("sym {:?}", s);
     }
     let mut address = 0;
+    //let dst_addr = my_gettimeofday as *const ();
+
+    let mapping: HashMap<String, u64> = HashMap::from([
+        (
+            "clock_gettime".to_string(),
+            my_clockgettime as *const () as u64,
+        ),
+        (
+            "__vdso_clock_gettime".to_string(),
+            my_clockgettime as *const () as u64,
+        ),
+        (
+            "__vdso_gettimeofday".to_string(),
+            my_gettimeofday as *const () as u64,
+        ),
+        (
+            "gettimeofday".to_string(),
+            my_gettimeofday as *const () as u64,
+        ),
+        /*
+        (
+            "clock_getres".to_string(),
+            my_clockgettime as *const () as u64,
+        ),
+        (
+            "__vdso_clock_getres".to_string(),
+            my_clockgettime as *const () as u64,
+        ),
+        */
+        /*
+        ("time".to_string(), my_clockgettime as *const () as u64),
+        (
+            "__vdso_time".to_string(),
+            my_clockgettime as *const () as u64,
+        ),
+        */
+    ]);
+
     for ds in &r.dynsyms {
-        println!(
-            "dyns {:?} {:?}",
-            ds,
-            get_str_til_nul(&r.dynstrtab, ds.st_name)
-        );
-        if get_str_til_nul(&r.dynstrtab, ds.st_name).contains("time")
-            || get_str_til_nul(&r.dynstrtab, ds.st_name).contains("clock")
-        {
+        let sym_name = get_str_til_nul(&r.dynstrtab, ds.st_name);
+        println!("Found dyns {:?} {:?}", ds, sym_name);
+        if let Some(dst_addr) = mapping.get(&sym_name) {
             address = ds.st_value;
-            overwrite(range, address, ds.st_size);
+            println!("Overriding");
+            overwrite(range, address, *dst_addr, ds.st_size);
         }
         /*
         if get_str_til_nul(&r.dynstrtab, ds.st_name) == "gettimeofday" {
@@ -160,14 +208,14 @@ fn mess_vdso(buf: Vec<u8>, range: &Range) {
         libc::gettimeofday(&mut tv, std::ptr::null_mut());
     }
 
-    println!("{} {}", tv.tv_sec, tv.tv_usec);
+    println!("called gettimeofday {} {}", tv.tv_sec, tv.tv_usec);
 
     // ------------------
     std::thread::sleep(std::time::Duration::from_millis(100));
     unsafe {
         libc::gettimeofday(&mut tv, std::ptr::null_mut());
     }
-    println!("{} {}", tv.tv_sec, tv.tv_usec);
+    println!("called gettimeofday {} {}", tv.tv_sec, tv.tv_usec);
 
     // ------------------
     /*
@@ -185,7 +233,10 @@ fn mess_vdso(buf: Vec<u8>, range: &Range) {
     let code: extern "C" fn(tp: *mut libc::timeval, tz: *mut c_void) =
         unsafe { std::mem::transmute(fptr) };
     (code)(&mut tv, std::ptr::null_mut());
-    println!("{} {}", tv.tv_sec, tv.tv_usec);
+    println!(
+        "called mygettimeofday manually {} {}",
+        tv.tv_sec, tv.tv_usec
+    );
 
     // ------------------
     // FIXME WRITE HERE
@@ -215,12 +266,13 @@ fn mess_vdso(buf: Vec<u8>, range: &Range) {
     */
     // ------------------
     std::thread::sleep(std::time::Duration::from_millis(100));
-    tv.tv_sec = 333;
+    tv.tv_sec = 101010;
+    tv.tv_usec = 202020;
     unsafe {
         libc::gettimeofday(&mut tv, std::ptr::null_mut());
     }
-    println!("alive ?? {} {}", tv.tv_sec, tv.tv_usec);
-    println!("AFTER WRITE {:?}", std::time::SystemTime::now());
+    println!("called gettimeofday {} {}", tv.tv_sec, tv.tv_usec);
+    println!("AFTER WRITE, SystemTime {:?}", std::time::SystemTime::now());
 }
 pub fn add(left: usize, right: usize) -> usize {
     left + right
