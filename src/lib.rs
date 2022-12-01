@@ -1,12 +1,10 @@
 //#![feature(naked_functions)]
-use core::time;
 use goblin::elf::*;
 use goblin::strtab::Strtab;
 use libc::{self, c_void};
-use std::arch::asm;
 use std::collections::HashMap;
 use std::error::Error;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::prelude::FileExt;
 
@@ -16,13 +14,16 @@ struct Range {
     end: usize,
 }
 
-/*
-#[naked]
-unsafe extern "C" fn gtod_trampoline() {
-    const fptr: u64 = 64; //(my_gettimeofday as *const ()) as u64;
-    asm!("mov rax, {0}", "jmp rax", in(reg) fptr, options(noreturn));
+extern "C" fn my_time(t: *mut libc::time_t) -> libc::time_t {
+    println!("my time {:?}!", t);
+    const NOW: libc::time_t = 666;
+    if !t.is_null() {
+        unsafe {
+            *t = NOW;
+        }
+    }
+    return NOW;
 }
-*/
 
 extern "C" fn my_clockgettime(clockid: libc::clockid_t, ts: *mut libc::timespec) -> u32 {
     println!("my clockgettime {} {:?}!", clockid, ts);
@@ -30,6 +31,17 @@ extern "C" fn my_clockgettime(clockid: libc::clockid_t, ts: *mut libc::timespec)
         unsafe {
             (*ts).tv_sec = 111;
             (*ts).tv_nsec = 222;
+        }
+    }
+    return 0;
+}
+
+extern "C" fn my_clockgetres(clockid: libc::clockid_t, ts: *mut libc::timespec) -> u32 {
+    println!("my clockgetres {} {:?}!", clockid, ts);
+    if !ts.is_null() {
+        unsafe {
+            (*ts).tv_sec = 0;
+            (*ts).tv_nsec = 1000;
         }
     }
     return 0;
@@ -163,23 +175,16 @@ fn mess_vdso(buf: Vec<u8>, range: &Range) {
             "gettimeofday".to_string(),
             my_gettimeofday as *const () as u64,
         ),
-        /*
         (
             "clock_getres".to_string(),
-            my_clockgettime as *const () as u64,
+            my_clockgetres as *const () as u64,
         ),
         (
             "__vdso_clock_getres".to_string(),
-            my_clockgettime as *const () as u64,
+            my_clockgetres as *const () as u64,
         ),
-        */
-        /*
-        ("time".to_string(), my_clockgettime as *const () as u64),
-        (
-            "__vdso_time".to_string(),
-            my_clockgettime as *const () as u64,
-        ),
-        */
+        ("time".to_string(), my_time as *const () as u64),
+        ("__vdso_time".to_string(), my_time as *const () as u64),
     ]);
 
     for ds in &r.dynsyms {
@@ -190,12 +195,6 @@ fn mess_vdso(buf: Vec<u8>, range: &Range) {
             println!("Overriding");
             overwrite(range, address, *dst_addr, ds.st_size);
         }
-        /*
-        if get_str_til_nul(&r.dynstrtab, ds.st_name) == "gettimeofday" {
-            println!("dyn {:#?}", ds);
-            address = ds.st_value;
-        }
-        */
     }
     write_vdso(&read_vdso(range));
     assert_ne!(address, 0);
