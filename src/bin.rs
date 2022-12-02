@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use tpom::{TimeSpec, TimeVal};
+use tpom::{ClockController, TimeSpec, TimeVal};
 
 extern crate tpom;
 
@@ -18,11 +18,11 @@ fn mygttod() -> TimeVal {
     }
 }
 pub fn main() {
-    tpom::lift_curse_vdso();
+    ClockController::restore();
     println!("Now: {:?}", SystemTime::now());
-    tpom::curse_vdso(Some(myclock), None, None, Some(mygttod));
+    ClockController::overwrite(Some(myclock), None, None, Some(mygttod));
     println!("Now: {:?}", SystemTime::now());
-    tpom::lift_curse_vdso();
+    ClockController::restore();
     println!("Now: {:?}", SystemTime::now());
-    tpom::lift_curse_vdso();
+    ClockController::restore();
 }
