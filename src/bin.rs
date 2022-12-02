@@ -18,7 +18,11 @@ fn mygttod() -> TimeVal {
     }
 }
 pub fn main() {
+    timekeeper::lift_curse_vdso();
     println!("Now: {:?}", SystemTime::now());
     timekeeper::curse_vdso(Some(myclock), None, None, Some(mygttod));
     println!("Now: {:?}", SystemTime::now());
+    timekeeper::lift_curse_vdso();
+    println!("Now: {:?}", SystemTime::now());
+    timekeeper::lift_curse_vdso();
 }

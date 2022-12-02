@@ -7,12 +7,13 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::prelude::*;
 use std::os::unix::prelude::FileExt;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 
 #[derive(Debug)]
 struct Range {
     start: usize,
     end: usize,
+    writable: bool,
 }
 
 pub type Time = libc::time_t; // as libc::time_t
@@ -43,6 +44,7 @@ lazy_static! {
     static ref CLOCK_GT_CB: RwLock<Option<ClockGetTimeCb>> = RwLock::new(None);
     static ref CLOCK_RES_CB: RwLock<Option<ClockGetResCb>> = RwLock::new(None);
     static ref TIME_CB: RwLock<Option<TimeCb>> = RwLock::new(None);
+    static ref BACKUP_VDSO: Mutex<Vec<u8>> = Mutex::new(vec![]);
 }
 
 extern "C" fn my_time(t: *mut libc::time_t) -> libc::time_t {
@@ -94,15 +96,43 @@ fn vdso_mem_range() -> Result<Range, Box<dyn Error>> {
         if line.contains("vdso") {
             let (range, _) = line.split_once(" ").unwrap();
             let (start, end) = range.split_once("-").unwrap();
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            let perms = parts[1];
             return Ok(Range {
                 start: usize::from_str_radix(start, 16).unwrap(),
                 end: usize::from_str_radix(end, 16).unwrap(),
+                writable: perms.contains("w"),
             });
         }
     }
-    return Err("Blah".into());
+    return Err("No vDSO mapped in memory range. Cannot continue".into());
 }
 
+pub fn is_cursed() -> bool {
+    let r = vdso_mem_range().unwrap();
+    r.writable
+}
+pub fn lift_curse_vdso() {
+    let r = vdso_mem_range().unwrap();
+    if !r.writable {
+        return;
+    }
+    if let Ok(b) = BACKUP_VDSO.lock() {
+        if b.len() == 0 {
+            return;
+        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(b.as_ptr(), r.start as *mut u8, b.len());
+            /*
+            libc::mprotect(
+                r.start as *mut libc::c_void,
+                r.end - r.start,
+                libc::PROT_EXEC | libc::PROT_READ,
+            );
+            */
+        }
+    }
+}
 pub fn curse_vdso(
     clockgettime_cb: Option<ClockGetTimeCb>,
     time_cb: Option<TimeCb>,
@@ -117,8 +147,6 @@ pub fn curse_vdso(
             libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
         );
     }
-    let b = read_vdso(&r);
-
     let mut mapping: HashMap<&'static str, u64> = HashMap::new();
     if let Some(g) = clockgettime_cb {
         let mut w = CLOCK_GT_CB.write().unwrap();
@@ -148,8 +176,11 @@ pub fn curse_vdso(
         mapping.insert("gettimeofday", addr);
         mapping.insert("__vdso_gettimeofday", addr);
     }
+
+    let b = read_vdso(&r);
+    BACKUP_VDSO.lock().unwrap().clear();
+    BACKUP_VDSO.lock().unwrap().append(&mut b.clone());
     mess_vdso(b, &r, mapping);
-    vdso_mem_range().unwrap();
 }
 
 fn get_str_til_nul(s: &Strtab, at: usize) -> String {
@@ -182,6 +213,17 @@ fn overwrite(range: &Range, address: u64, dst_address: u64, size: u32) {
         std::ptr::write_bytes((addr + 0) as *mut u8, 0xC3, 1); // RET
         std::ptr::write_bytes((addr + 1) as *mut u8, 0x90, (size - 1) as usize);
         */
+        /* These opcodes come from running `nasm -f elf64` on
+          ```
+               global  _start
+               section .text
+           _start:
+               mov		rax, 0x12ff34ff56ff78ff
+               jmp 		rax
+          ```
+          and copying them manually
+        */
+        // MOV RAX, <address>
         std::ptr::write_bytes((addr + 0) as *mut u8, 0x48, 1);
         std::ptr::write_bytes((addr + 1) as *mut u8, 0xB8, 1);
         std::ptr::write_bytes((addr + 2) as *mut u8, ((dst_address >> 0) & 0xFF) as u8, 1);
@@ -192,8 +234,10 @@ fn overwrite(range: &Range, address: u64, dst_address: u64, size: u32) {
         std::ptr::write_bytes((addr + 7) as *mut u8, ((dst_address >> 40) & 0xFF) as u8, 1);
         std::ptr::write_bytes((addr + 8) as *mut u8, ((dst_address >> 48) & 0xFF) as u8, 1);
         std::ptr::write_bytes((addr + 9) as *mut u8, ((dst_address >> 56) & 0xFF) as u8, 1);
+        // JMP
         std::ptr::write_bytes((addr + 10) as *mut u8, 0xFF, 1);
         std::ptr::write_bytes((addr + 11) as *mut u8, 0xE0, 1);
+        // NOP the remaining space, unnecessary, but useful when debugging
         // Size is 2**(size -1)
         std::ptr::write_bytes(
             (addr + 12) as *mut u8,
@@ -217,11 +261,11 @@ fn mess_vdso(buf: Vec<u8>, range: &Range, mapping: HashMap<&'static str, u64>) {
     for ds in &r.dynsyms {
         let sym_name = get_str_til_nul(&r.dynstrtab, ds.st_name);
         if let Some(dst_addr) = mapping.get(sym_name.as_str()) {
-            println!("Overriding dyn sym {}", sym_name);
+            // println!("Overriding dyn sym {}", sym_name);
             overwrite(range, ds.st_value, *dst_addr, ds.st_size as u32);
         }
     }
-    write_vdso(&read_vdso(range));
+    // write_vdso(&read_vdso(range));
 }
 pub fn add(left: usize, right: usize) -> usize {
     left + right
