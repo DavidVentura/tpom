@@ -1,8 +1,8 @@
 use std::time::SystemTime;
 
-use timekeeper::{TimeSpec, TimeVal};
+use tpom::{TimeSpec, TimeVal};
 
-extern crate timekeeper;
+extern crate tpom;
 
 fn myclock(_clockid: i32) -> TimeSpec {
     TimeSpec {
@@ -18,11 +18,11 @@ fn mygttod() -> TimeVal {
     }
 }
 pub fn main() {
-    timekeeper::lift_curse_vdso();
+    tpom::lift_curse_vdso();
     println!("Now: {:?}", SystemTime::now());
-    timekeeper::curse_vdso(Some(myclock), None, None, Some(mygttod));
+    tpom::curse_vdso(Some(myclock), None, None, Some(mygttod));
     println!("Now: {:?}", SystemTime::now());
-    timekeeper::lift_curse_vdso();
+    tpom::lift_curse_vdso();
     println!("Now: {:?}", SystemTime::now());
-    timekeeper::lift_curse_vdso();
+    tpom::lift_curse_vdso();
 }

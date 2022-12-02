@@ -14,7 +14,7 @@
 //!
 //! # Examples
 //! ```
-//! use timekeeper::*;
+//! use tpom::*;
 //! use std::time::SystemTime;
 //!
 //! curse_vdso(
@@ -261,10 +261,6 @@ fn read_vdso(range: &Range) -> Vec<u8> {
 fn overwrite(range: &Range, address: u64, dst_address: u64, size: usize) {
     let addr = (range.start as u64) + address;
     unsafe {
-        /*
-        std::ptr::write_bytes((addr + 0) as *mut u8, 0xC3, 1); // RET
-        std::ptr::write_bytes((addr + 1) as *mut u8, 0x90, (size - 1) as usize);
-        */
         /* These opcodes come from running `nasm -f elf64` on
           ```
                global  _start
@@ -313,7 +309,6 @@ fn mess_vdso(buf: Vec<u8>, range: &Range, mapping: HashMap<&'static str, u64>) {
             overwrite(range, ds.st_value, *dst_addr, ds.st_size as usize);
         }
     }
-    // write_vdso(&read_vdso(range));
 }
 
 #[cfg(test)]
