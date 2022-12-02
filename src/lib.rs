@@ -54,7 +54,7 @@ struct Range {
     writable: bool,
 }
 
-pub(crate) type Time = libc::time_t; // as libc::time_t
+pub type Time = libc::time_t; // as libc::time_t
 
 /// Return type for `ClockGetTime` and `ClockGetRes`; maps to
 /// [libc::timespec](https://docs.rs/libc/0.2.56/libc/struct.timespec.html).
