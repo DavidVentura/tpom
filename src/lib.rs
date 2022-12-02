@@ -47,7 +47,7 @@ use std::collections::HashMap;
 use crate::trampolines::*;
 use crate::vdso::vDSO;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Range {
     start: usize,
     end: usize,
@@ -86,12 +86,12 @@ pub struct ClockController {}
 impl ClockController {
     pub fn is_overwritten() -> bool {
         //! Whether the vDSO is currently overwritten
-        let r = vDSO::find().unwrap();
+        let r = vDSO::find(None).unwrap();
         r.writable
     }
     pub fn restore() {
         //! Restore the vDSO to its original state, if it is currently overwritten
-        let r = vDSO::find().unwrap();
+        let r = vDSO::find(None).unwrap();
         if !r.writable {
             return;
         }
@@ -147,7 +147,7 @@ impl ClockController {
             mapping.insert("__vdso_gettimeofday", addr);
         }
 
-        let r = vDSO::find().unwrap();
+        let r = vDSO::find(None).unwrap();
         unsafe {
             libc::mprotect(
                 r.start as *mut libc::c_void,

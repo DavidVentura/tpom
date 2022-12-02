@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::os::unix::prelude::FileExt;
 
+#[derive(Debug, PartialEq)]
 pub(crate) struct DynSym {
     pub(crate) name: String,
     pub(crate) address: u64,
@@ -21,8 +22,8 @@ impl vDSO {
         drop(f);
         return buf;
     }
-    pub(crate) fn find() -> Result<Range, Box<dyn Error>> {
-        let data = fs::read_to_string("/proc/self/maps")?;
+    pub(crate) fn find(path: Option<&str>) -> Result<Range, Box<dyn Error>> {
+        let data = fs::read_to_string(path.unwrap_or("/proc/self/maps"))?;
 
         for line in data.lines() {
             if !line.contains("vdso") {
@@ -54,6 +55,9 @@ impl vDSO {
 
         let mut ret = vec![];
         for ds in &r.dynsyms {
+            if ds.st_value == 0 {
+                continue;
+            }
             let sym_name = get_str_til_nul(&r.dynstrtab, ds.st_name);
             ret.push(DynSym {
                 name: sym_name.as_str().to_string(),
@@ -116,4 +120,89 @@ fn get_str_til_nul(s: &Strtab, at: usize) -> String {
         ret.push(c.into());
     }
     return ret;
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_proc_self_maps() {
+        let parsed = vDSO::find(Some("src/test_files/proc/self/maps"));
+        let expected = Range {
+            start: 0x7fff37953000,
+            end: 0x7fff37955000,
+            writable: false,
+        };
+        assert_eq!(parsed.is_ok(), true);
+        assert_eq!(parsed.unwrap(), expected);
+    }
+    #[test]
+    fn test_dynsyms() {
+        /*
+        let r = vDSO::find().unwrap();
+        let cur_vdso = vDSO::read(&r);
+        fs::write("/tmp/foo", cur_vdso).expect("Unable to write file");
+        */
+        let test_vdso =
+            fs::read("src/test_files/test_vdso_elf_1").expect("Unable to read test file");
+        let parsed = vDSO::dynsyms(test_vdso);
+        let expected = vec![
+            DynSym {
+                name: "clock_gettime".to_string(),
+                address: 3088,
+                size: 5,
+            },
+            DynSym {
+                name: "__vdso_gettimeofday".to_string(),
+                address: 3024,
+                size: 5,
+            },
+            DynSym {
+                name: "clock_getres".to_string(),
+                address: 3104,
+                size: 96,
+            },
+            DynSym {
+                name: "__vdso_clock_getres".to_string(),
+                address: 3104,
+                size: 96,
+            },
+            DynSym {
+                name: "gettimeofday".to_string(),
+                address: 3024,
+                size: 5,
+            },
+            DynSym {
+                name: "__vdso_time".to_string(),
+                address: 3040,
+                size: 41,
+            },
+            DynSym {
+                name: "__vdso_sgx_enter_enclave".to_string(),
+                address: 3248,
+                size: 156,
+            },
+            DynSym {
+                name: "time".to_string(),
+                address: 3040,
+                size: 41,
+            },
+            DynSym {
+                name: "__vdso_clock_gettime".to_string(),
+                address: 3088,
+                size: 5,
+            },
+            DynSym {
+                name: "__vdso_getcpu".to_string(),
+                address: 3200,
+                size: 37,
+            },
+            DynSym {
+                name: "getcpu".to_string(),
+                address: 3200,
+                size: 37,
+            },
+        ];
+        assert_eq!(parsed, expected);
+    }
 }
