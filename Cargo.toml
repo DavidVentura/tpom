@@ -2,6 +2,8 @@
 name = "tpom"
 version = "0.1.0"
 edition = "2021"
+description = "Allows overriding the system clock; useful for testing"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
