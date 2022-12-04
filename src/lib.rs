@@ -166,7 +166,7 @@ impl ClockController {
     fn mess_vdso(buf: Vec<u8>, elf_offset: u64, mapping: HashMap<&'static str, u64>) {
         for ds in vDSO::dynsyms(buf) {
             if let Some(dst_addr) = mapping.get(ds.name.as_str()) {
-                // println!("Overriding dyn sym {} at {:x}", sym_name, dst_addr);
+                // println!("Overriding dyn sym {} at {:x}", ds.name, dst_addr);
                 vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
             }
         }
