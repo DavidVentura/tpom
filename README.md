@@ -6,7 +6,7 @@
 This library hijacks time-related functions in the vDSO ([1](https://man7.org/linux/man-pages/man7/vdso.7.html), [2](https://en.wikipedia.org/wiki/VDSO)) and allows replacing them with user-provided functions.
 
 
-As an example, embedded into a Python project, via [py-tpom](https://github.com/davidventura/tpom):
+As an example, embedded into a Python project, via [py-tpom](https://github.com/davidventura/py-tpom):
 
 ```python
 >>> import datetime
