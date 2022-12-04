@@ -21,6 +21,7 @@ pub fn main() {
     ClockController::restore();
     println!("Now: {:?}", SystemTime::now());
     ClockController::overwrite(Some(myclock), None, None, Some(mygttod));
+    println!("Executing");
     println!("Now: {:?}", SystemTime::now());
     ClockController::restore();
     println!("Now: {:?}", SystemTime::now());

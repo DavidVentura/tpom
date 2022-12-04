@@ -40,18 +40,11 @@ impl vDSO {
             };
             return Ok(r);
         }
+        println!("Map: {}", data);
         return Err("No vDSO mapped in memory range. Cannot continue".into());
     }
     pub(crate) fn dynsyms(buf: Vec<u8>) -> Vec<DynSym> {
         let r = Elf::parse(&buf).unwrap();
-
-        let mut va = 0;
-        for s in r.program_headers {
-            if s.p_type == program_header::PT_DYNAMIC {
-                va = s.p_vaddr;
-            }
-        }
-        assert_ne!(va, 0);
 
         let mut ret = vec![];
         for ds in &r.dynsyms {
@@ -68,45 +61,106 @@ impl vDSO {
         return ret;
     }
 
+    #[cfg(target_arch = "aarch64")]
+    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+        /* These opcodes come from running `nasm -f elf64` on
+        ```
+        .text
+
+        .globl _start
+        _start:
+            LDR    x0, .+8
+            BR     x0
+        .dword 0x12ff34ff56ff78ff
+            NOP
+            NOP
+            NOP
+        ```
+        which becomes
+        ```
+        0000000000000000 <_start>:
+           0:	58000040 	ldr	x0, 8 <_start+0x8>
+           4:	d61f0000 	br	x0
+           8:	56ff78ff 	.word	0x56ff78ff
+           c:	12ff34ff 	.word	0x12ff34ff
+          10:	d503201f 	nop
+          14:	d503201f 	nop
+          18:	d503201f 	nop
+        ```
+        */
+        let _a_bytes = jmp_target.to_be_bytes().to_vec();
+        let mut addr_bytes = vec![
+            _a_bytes[7],
+            _a_bytes[6],
+            _a_bytes[5],
+            _a_bytes[4],
+            _a_bytes[3],
+            _a_bytes[2],
+            _a_bytes[1],
+            _a_bytes[0],
+        ];
+
+        let ldr_x0_8 = vec![0x40, 0x00, 0x00, 0x58];
+        let br_x0 = vec![0x00, 0x00, 0x1f, 0xd6];
+        let nop = vec![0x1f, 0x20, 0x03, 0xd5];
+
+        let mut opcodes: Vec<u8> = [ldr_x0_8, br_x0].concat();
+        opcodes.append(&mut addr_bytes);
+        opcodes.append(&mut nop.clone());
+        opcodes.append(&mut nop.clone());
+        opcodes.append(&mut nop.clone());
+
+        opcodes
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+        /* These opcodes come from running `nasm -f elf64` on
+          ```
+               global  _start
+               section .text
+           _start:
+               mov		rax, 0x12ff34ff56ff78ff
+               jmp 		rax
+          ```
+          and copying them
+        */
+        let mut addr_bytes = jmp_target.to_le_bytes().to_vec();
+
+        // MOV RAX, <addr>
+        let mut opcodes: Vec<u8> = vec![0x48, 0xB8];
+        opcodes.append(&mut addr_bytes);
+        // JMP
+        opcodes.append(&mut vec![0xFF, 0xE0]);
+        // NOP
+        let padding_size = std::cmp::max(16, symbol_len) - opcodes.len();
+        let mut nops = vec![0x90u8; padding_size];
+        opcodes.append(&mut nops);
+
+        opcodes
+    }
+
     /// Overwrites the process' memory at (`range.start + address`) with:
     /// ```asm
-    /// mov rax, $dst_address
+    /// mov rax, $jmp_address
     /// jmp rax
     /// nop
     /// nop
     /// nop
     /// nop
     /// ```
-    pub(crate) fn overwrite(range: &Range, address: u64, dst_address: u64, size: usize) {
-        let addr = (range.start as u64) + address;
+    pub(crate) fn overwrite(
+        elf_offset: u64,
+        symbol_address: u64,
+        jmp_address: u64,
+        symbol_size: usize,
+    ) {
+        let dst_addr = elf_offset + symbol_address;
+        let opcodes = vDSO::generate_opcodes(jmp_address as usize, symbol_size);
         unsafe {
-            /* These opcodes come from running `nasm -f elf64` on
-              ```
-                   global  _start
-                   section .text
-               _start:
-                   mov		rax, 0x12ff34ff56ff78ff
-                   jmp 		rax
-              ```
-              and copying them manually
-            */
-            // MOV RAX, <address>
-            std::ptr::write_bytes((addr + 0) as *mut u8, 0x48, 1);
-            std::ptr::write_bytes((addr + 1) as *mut u8, 0xB8, 1);
-            std::ptr::write_bytes((addr + 2) as *mut u8, ((dst_address >> 0) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 3) as *mut u8, ((dst_address >> 8) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 4) as *mut u8, ((dst_address >> 16) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 5) as *mut u8, ((dst_address >> 24) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 6) as *mut u8, ((dst_address >> 32) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 7) as *mut u8, ((dst_address >> 40) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 8) as *mut u8, ((dst_address >> 48) & 0xFF) as u8, 1);
-            std::ptr::write_bytes((addr + 9) as *mut u8, ((dst_address >> 56) & 0xFF) as u8, 1);
-            // JMP
-            std::ptr::write_bytes((addr + 10) as *mut u8, 0xFF, 1);
-            std::ptr::write_bytes((addr + 11) as *mut u8, 0xE0, 1);
-            // NOP the remaining space, unnecessary, but useful when debugging
-            let padding_size = std::cmp::max(16, size) - 12;
-            std::ptr::write_bytes((addr + 12) as *mut u8, 0x90, padding_size);
+            for (i, b) in opcodes.iter().enumerate() {
+                std::ptr::write_bytes((dst_addr as usize + i) as *mut u8, *b, 1);
+            }
         }
     }
 }
@@ -121,9 +175,20 @@ fn get_str_til_nul(s: &Strtab, at: usize) -> String {
     }
     return ret;
 }
+
+#[allow(dead_code)]
+fn dump_vdso(suffix: Option<&str>) {
+    println!("Dumping vDSO");
+    let r = vDSO::find(None).unwrap();
+    let cur_vdso = vDSO::read(&r);
+    let fname = format!("/tmp/vdso{}", suffix.unwrap_or(""));
+    fs::write(&fname, cur_vdso).expect(&format!("Unable to write file {}", fname));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ClockController, TimeSpec};
 
     #[test]
     fn test_parse_proc_self_maps() {
@@ -137,12 +202,19 @@ mod tests {
         assert_eq!(parsed.unwrap(), expected);
     }
     #[test]
+    fn test_stuff() {
+        ClockController::overwrite(
+            Some(|_| TimeSpec {
+                seconds: 1,
+                nanos: 1,
+            }),
+            None,
+            None,
+            None,
+        );
+    }
+    #[test]
     fn test_dynsyms() {
-        /*
-        let r = vDSO::find().unwrap();
-        let cur_vdso = vDSO::read(&r);
-        fs::write("/tmp/foo", cur_vdso).expect("Unable to write file");
-        */
         let test_vdso =
             fs::read("src/test_files/test_vdso_elf_1").expect("Unable to read test file");
         let parsed = vDSO::dynsyms(test_vdso);

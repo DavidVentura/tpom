@@ -72,5 +72,6 @@ the vDSO after:
 ## Notes
 
 * This **will not work** if your code executes syscalls directly.
-* Only works on `x86_64`, on Linux.
+* Only works on `x86_64` and `aarch64`, on Linux.
+    * It can be extended by generating new opcodes and adding arch-specific vDSO symbol names
 * **No `LD_PRELOAD`**

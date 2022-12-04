@@ -124,6 +124,7 @@ impl ClockController {
             let addr = my_clockgettime as *const () as u64;
             mapping.insert("clock_gettime", addr);
             mapping.insert("__vdso_clock_gettime", addr);
+            mapping.insert("__kernel_clock_gettime", addr); // arch64
         }
         if let Some(g) = time_cb {
             let mut w = TIME_CB.write().unwrap();
@@ -138,6 +139,7 @@ impl ClockController {
             let addr = my_clockgetres as *const () as u64;
             mapping.insert("clock_getres", addr);
             mapping.insert("__vdso_clock_getres", addr);
+            mapping.insert("__kernel_clock_getres", addr); // arch64
         }
         if let Some(g) = gettimeofday {
             let mut w = CLOCK_GTOD_CB.write().unwrap();
@@ -145,6 +147,7 @@ impl ClockController {
             let addr = my_gettimeofday as *const () as u64;
             mapping.insert("gettimeofday", addr);
             mapping.insert("__vdso_gettimeofday", addr);
+            mapping.insert("__kernel_gettimeofday", addr); // arch64
         }
 
         let r = vDSO::find(None).unwrap();
@@ -158,13 +161,13 @@ impl ClockController {
         let b = vDSO::read(&r);
         BACKUP_VDSO.lock().unwrap().clear();
         BACKUP_VDSO.lock().unwrap().append(&mut b.clone());
-        ClockController::mess_vdso(b, &r, mapping);
+        ClockController::mess_vdso(b, r.start as u64, mapping);
     }
-    fn mess_vdso(buf: Vec<u8>, range: &Range, mapping: HashMap<&'static str, u64>) {
+    fn mess_vdso(buf: Vec<u8>, elf_offset: u64, mapping: HashMap<&'static str, u64>) {
         for ds in vDSO::dynsyms(buf) {
             if let Some(dst_addr) = mapping.get(ds.name.as_str()) {
                 // println!("Overriding dyn sym {} at {:x}", sym_name, dst_addr);
-                vDSO::overwrite(range, ds.address, *dst_addr, ds.size as usize);
+                vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
             }
         }
     }
