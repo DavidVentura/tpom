@@ -89,7 +89,7 @@ impl vDSO {
         ```
         */
         let _a_bytes = jmp_target.to_be_bytes().to_vec();
-        let mut addr_bytes = vec![
+        let addr_bytes = vec![
             _a_bytes[7],
             _a_bytes[6],
             _a_bytes[5],
@@ -104,13 +104,15 @@ impl vDSO {
         let br_x0 = vec![0x00, 0x00, 0x1f, 0xd6];
         let nop = vec![0x1f, 0x20, 0x03, 0xd5];
 
-        let mut opcodes: Vec<u8> = [ldr_x0_8, br_x0].concat();
-        opcodes.append(&mut addr_bytes);
-        opcodes.append(&mut nop.clone());
-        opcodes.append(&mut nop.clone());
-        opcodes.append(&mut nop.clone());
-
-        opcodes
+        [
+            ldr_x0_8,
+            br_x0,
+            addr_bytes,
+            nop.clone(),
+            nop.clone(),
+            nop.clone(),
+        ]
+        .concat()
     }
 
     #[cfg(target_arch = "x86_64")]
