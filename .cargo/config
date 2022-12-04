@@ -3,3 +3,6 @@ linker = "aarch64-linux-gnu-gcc"
 
 [target.aarch64-unknown-linux-musl]
 linker = "/home/david/git/aarch64-linux-musl-cross/bin/aarch64-linux-musl-gcc"
+
+[target.riscv64gc-unknown-linux-gnu]
+linker = "riscv64-linux-gnu-gcc"

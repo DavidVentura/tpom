@@ -60,6 +60,38 @@ impl vDSO {
         }
         return ret;
     }
+    #[cfg(target_arch = "riscv64")]
+    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+        /*
+              0:   00000297                auipc   t0,0x0
+              4:   00c2b303                ld      t1,12(t0) # c <_start+0xc>
+              8:   00030067                jr      t1
+              c:   56ff78ff                .word   0x56ff78ff
+             10:   12ff34ff                .word   0x12ff34ff
+             14:   00000013                nop
+             18:   00000013                nop
+             1c:   00000013                nop
+        */
+        let auipc_t0 = vec![0x97, 0x02, 0x00, 0x00]; // store PC at t0
+        let ld_t0_plus12 = vec![0x03, 0xb3, 0xc2, 0x00]; // load PC+12 into t1
+        let jr = vec![0x67, 0x00, 0x03, 0x00]; // jump to T1
+        let addr_bytes = jmp_target.to_be_bytes();
+        let addr_first_half = vec![addr_bytes[7], addr_bytes[6], addr_bytes[5], addr_bytes[4]];
+        let addr_second_half = vec![addr_bytes[3], addr_bytes[2], addr_bytes[1], addr_bytes[0]];
+        let nop = vec![0x13, 0x0, 0x0, 0x0];
+        [
+            auipc_t0,
+            ld_t0_plus12,
+            jr,
+            addr_first_half,
+            addr_second_half,
+            nop.clone(),
+            nop.clone(),
+            nop.clone(),
+            nop.clone(),
+        ]
+        .concat()
+    }
 
     #[cfg(target_arch = "aarch64")]
     fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
@@ -176,15 +208,6 @@ fn get_str_til_nul(s: &Strtab, at: usize) -> String {
         ret.push(c.into());
     }
     return ret;
-}
-
-#[allow(dead_code)]
-fn dump_vdso(suffix: Option<&str>) {
-    println!("Dumping vDSO");
-    let r = vDSO::find(None).unwrap();
-    let cur_vdso = vDSO::read(&r);
-    let fname = format!("/tmp/vdso{}", suffix.unwrap_or(""));
-    fs::write(&fname, cur_vdso).expect(&format!("Unable to write file {}", fname));
 }
 
 #[cfg(test)]

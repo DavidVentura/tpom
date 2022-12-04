@@ -43,6 +43,7 @@ pub(crate) mod vdso;
 
 use libc;
 use std::collections::HashMap;
+use std::fs;
 
 use crate::trampolines::*;
 use crate::vdso::vDSO;
@@ -171,4 +172,13 @@ impl ClockController {
             }
         }
     }
+}
+
+#[allow(dead_code)]
+pub fn dump_vdso(suffix: Option<&str>) {
+    println!("Dumping vDSO");
+    let r = vDSO::find(None).unwrap();
+    let cur_vdso = vDSO::read(&r);
+    let fname = format!("/tmp/vdso{}", suffix.unwrap_or(""));
+    fs::write(&fname, cur_vdso).expect(&format!("Unable to write file {}", fname));
 }
