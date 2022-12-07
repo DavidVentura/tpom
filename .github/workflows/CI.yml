@@ -5,7 +5,10 @@ name: CI
 jobs:
   build_and_test:
     name: Tests
-    runs-on: self-hosted
+    strategy:
+      matrix:
+        arch: [Arm64, x64]
+    runs-on: [self-hosted, linux]
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -21,6 +24,6 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/            
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.arch }}-cargo-
       - run: cargo test
