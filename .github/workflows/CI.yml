@@ -8,7 +8,8 @@ jobs:
     strategy:
       matrix:
         arch: [Arm64, x64, riscv64]
-    runs-on: [self-hosted, linux]
+    #runs-on: [self-hosted, linux]
+    runs-on: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
