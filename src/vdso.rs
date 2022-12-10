@@ -60,8 +60,7 @@ impl vDSO {
         }
         return ret;
     }
-    #[cfg(target_arch = "riscv64")]
-    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+    fn _generate_opcodes_riscv64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
         /*
               0:   00000297                auipc   t0,0x0
               4:   00c2b303                ld      t1,12(t0) # c <_start+0xc>
@@ -85,16 +84,16 @@ impl vDSO {
             jr,
             addr_first_half,
             addr_second_half,
+            /*
             nop.clone(),
             nop.clone(),
             nop.clone(),
             nop.clone(),
+            */
         ]
         .concat()
     }
-
-    #[cfg(target_arch = "aarch64")]
-    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+    fn _generate_opcodes_aarch64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
         /* These opcodes come from running `nasm -f elf64` on
         ```
         .text
@@ -137,18 +136,17 @@ impl vDSO {
         let nop = vec![0x1f, 0x20, 0x03, 0xd5];
 
         [
-            ldr_x0_8,
-            br_x0,
+            ldr_x0_8, br_x0,
             addr_bytes,
+            /*
             nop.clone(),
             nop.clone(),
             nop.clone(),
+            */
         ]
         .concat()
     }
-
-    #[cfg(target_arch = "x86_64")]
-    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+    fn _generate_opcodes_x86_64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
         /* These opcodes come from running `nasm -f elf64` on
           ```
                global  _start
@@ -167,11 +165,31 @@ impl vDSO {
         // JMP
         opcodes.append(&mut vec![0xFF, 0xE0]);
         // NOP
-        let padding_size = std::cmp::max(16, symbol_len) - opcodes.len();
+        // FIXME: symbol_len is actual space taken, not spacein the symbol
+        // assert!(symbol_len <= opcodes.len());
+        let padding_size = if symbol_len < opcodes.len() {
+            0
+        } else {
+            symbol_len - opcodes.len()
+        };
         let mut nops = vec![0x90u8; padding_size];
         opcodes.append(&mut nops);
 
         opcodes
+    }
+    #[cfg(target_arch = "riscv64")]
+    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+        Self::_generate_opcodes_riscv64(jmp_target, symbol_len)
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+        Self::_generate_opcodes_aarch64(jmp_target, symbol_len)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    fn generate_opcodes(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
+        Self::_generate_opcodes_x86_64(jmp_target, symbol_len)
     }
 
     /// Overwrites the process' memory at (`range.start + address`) with:
@@ -215,6 +233,35 @@ mod tests {
     use super::*;
     use crate::{ClockController, TimeSpec};
 
+    #[test]
+    fn test_generate_riscv64_opcodes_no_padding() {
+        let expected = std::fs::read("tests/files/riscv64_0x12ff34ff56ff78ff.bin").unwrap();
+
+        assert_eq!(
+            expected,
+            vDSO::_generate_opcodes_riscv64(0x12ff34ff56ff78ff, 12)
+        );
+    }
+
+    #[test]
+    fn test_generate_aarch64_opcodes_no_padding() {
+        let expected = std::fs::read("tests/files/aarch64_0x12ff34ff56ff78ff.bin").unwrap();
+
+        assert_eq!(
+            expected,
+            vDSO::_generate_opcodes_aarch64(0x12ff34ff56ff78ff, 12)
+        );
+    }
+
+    #[test]
+    fn test_generate_x86_64_opcodes_no_padding() {
+        let expected = std::fs::read("tests/files/x86_64_0x12ff34ff56ff78ff.bin").unwrap();
+
+        assert_eq!(
+            expected,
+            vDSO::_generate_opcodes_x86_64(0x12ff34ff56ff78ff, 12)
+        );
+    }
     #[test]
     fn test_parse_proc_self_maps() {
         let parsed = vDSO::find(Some("src/test_files/proc/self/maps"));
