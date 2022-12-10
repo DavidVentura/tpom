@@ -23,7 +23,7 @@ mod tests {
             None,
         );
         let time_a = SystemTime::now();
-        std::thread::sleep(std::time::Duration::from_secs(1)); // clock in github actions is coarse
+        std::thread::sleep(std::time::Duration::from_millis(1)); // clock in github actions is coarse
         let time_b = SystemTime::now();
         ClockController::restore();
         assert_eq!(time_a, time_b);
@@ -33,7 +33,7 @@ mod tests {
     fn it_does_not_freeze_system_clock_if_unset() {
         ClockController::overwrite(None, None, None, None);
         let time_a = SystemTime::now();
-        std::thread::sleep(std::time::Duration::from_secs(1)); // clock in github actions is coarse
+        std::thread::sleep(std::time::Duration::from_millis(1)); // clock in github actions is coarse
         let time_b = SystemTime::now();
         assert_ne!(time_a, time_b);
     }
