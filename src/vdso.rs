@@ -46,16 +46,28 @@ impl vDSO {
     pub(crate) fn dynsyms(buf: Vec<u8>) -> Vec<DynSym> {
         let r = Elf::parse(&buf).unwrap();
 
+        let mut align = 0;
+        for h in r.section_headers {
+            let name = get_str_til_nul(&r.shdr_strtab, h.sh_name);
+            if h.sh_type == goblin::elf::section_header::SHT_PROGBITS && name == ".text" {
+                align = h.sh_addralign;
+            }
+        }
         let mut ret = vec![];
         for ds in &r.dynsyms {
             if ds.st_value == 0 {
                 continue;
             }
             let sym_name = get_str_til_nul(&r.dynstrtab, ds.st_name);
+            let symsize = if (ds.st_size % align) == 0 {
+                ds.st_size
+            } else {
+                ds.st_size + (align - (ds.st_size % align))
+            };
             ret.push(DynSym {
                 name: sym_name.as_str().to_string(),
                 address: ds.st_value,
-                size: ds.st_size,
+                size: symsize,
             });
         }
         return ret;
@@ -78,20 +90,18 @@ impl vDSO {
         let addr_first_half = vec![addr_bytes[7], addr_bytes[6], addr_bytes[5], addr_bytes[4]];
         let addr_second_half = vec![addr_bytes[3], addr_bytes[2], addr_bytes[1], addr_bytes[0]];
         let nop = vec![0x13, 0x0, 0x0, 0x0];
-        [
+        let mut opcodes = [
             auipc_t0,
             ld_t0_plus12,
             jr,
             addr_first_half,
             addr_second_half,
-            /*
-            nop.clone(),
-            nop.clone(),
-            nop.clone(),
-            nop.clone(),
-            */
         ]
-        .concat()
+        .concat();
+        while symbol_len > opcodes.len() {
+            opcodes.append(&mut nop.clone());
+        }
+        opcodes
     }
     fn _generate_opcodes_aarch64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
         /* These opcodes come from running `nasm -f elf64` on
@@ -135,16 +145,11 @@ impl vDSO {
         let br_x0 = vec![0x00, 0x00, 0x1f, 0xd6];
         let nop = vec![0x1f, 0x20, 0x03, 0xd5];
 
-        [
-            ldr_x0_8, br_x0,
-            addr_bytes,
-            /*
-            nop.clone(),
-            nop.clone(),
-            nop.clone(),
-            */
-        ]
-        .concat()
+        let mut opcodes = [ldr_x0_8, br_x0, addr_bytes].concat();
+        while symbol_len > opcodes.len() {
+            opcodes.append(&mut nop.clone());
+        }
+        opcodes
     }
     fn _generate_opcodes_x86_64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
         /* These opcodes come from running `nasm -f elf64` on
@@ -165,13 +170,8 @@ impl vDSO {
         // JMP
         opcodes.append(&mut vec![0xFF, 0xE0]);
         // NOP
-        // FIXME: symbol_len is actual space taken, not spacein the symbol
-        // assert!(symbol_len <= opcodes.len());
-        let padding_size = if symbol_len < opcodes.len() {
-            0
-        } else {
-            symbol_len - opcodes.len()
-        };
+        assert!(symbol_len >= opcodes.len());
+        let padding_size = symbol_len - opcodes.len();
         let mut nops = vec![0x90u8; padding_size];
         opcodes.append(&mut nops);
 
@@ -234,6 +234,36 @@ mod tests {
     use crate::{ClockController, TimeSpec};
 
     #[test]
+    fn test_generate_riscv64_opcodes_with_padding() {
+        let expected = std::fs::read("tests/files/riscv64_0x12ff34ff56ff78ff_pad_32.bin").unwrap();
+
+        assert_eq!(
+            expected,
+            vDSO::_generate_opcodes_riscv64(0x12ff34ff56ff78ff, 32)
+        );
+    }
+
+    #[test]
+    fn test_generate_aarch64_opcodes_with_padding() {
+        let expected = std::fs::read("tests/files/aarch64_0x12ff34ff56ff78ff_pad_32.bin").unwrap();
+
+        assert_eq!(
+            expected,
+            vDSO::_generate_opcodes_aarch64(0x12ff34ff56ff78ff, 32)
+        );
+    }
+
+    #[test]
+    fn test_generate_x86_64_opcodes_with_padding() {
+        let expected = std::fs::read("tests/files/x86_64_0x12ff34ff56ff78ff_pad_16.bin").unwrap();
+
+        assert_eq!(
+            expected,
+            vDSO::_generate_opcodes_x86_64(0x12ff34ff56ff78ff, 16)
+        );
+    }
+
+    #[test]
     fn test_generate_riscv64_opcodes_no_padding() {
         let expected = std::fs::read("tests/files/riscv64_0x12ff34ff56ff78ff.bin").unwrap();
 
@@ -294,12 +324,12 @@ mod tests {
             DynSym {
                 name: "clock_gettime".to_string(),
                 address: 3088,
-                size: 5,
+                size: 16,
             },
             DynSym {
                 name: "__vdso_gettimeofday".to_string(),
                 address: 3024,
-                size: 5,
+                size: 16,
             },
             DynSym {
                 name: "clock_getres".to_string(),
@@ -314,37 +344,37 @@ mod tests {
             DynSym {
                 name: "gettimeofday".to_string(),
                 address: 3024,
-                size: 5,
+                size: 16,
             },
             DynSym {
                 name: "__vdso_time".to_string(),
                 address: 3040,
-                size: 41,
+                size: 48,
             },
             DynSym {
                 name: "__vdso_sgx_enter_enclave".to_string(),
                 address: 3248,
-                size: 156,
+                size: 160,
             },
             DynSym {
                 name: "time".to_string(),
                 address: 3040,
-                size: 41,
+                size: 48,
             },
             DynSym {
                 name: "__vdso_clock_gettime".to_string(),
                 address: 3088,
-                size: 5,
+                size: 16,
             },
             DynSym {
                 name: "__vdso_getcpu".to_string(),
                 address: 3200,
-                size: 37,
+                size: 48,
             },
             DynSym {
                 name: "getcpu".to_string(),
                 address: 3200,
-                size: 37,
+                size: 48,
             },
         ];
         assert_eq!(parsed, expected);
