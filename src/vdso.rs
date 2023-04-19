@@ -26,7 +26,7 @@ impl vDSO {
         let data = fs::read_to_string(path.unwrap_or("/proc/self/maps"))?;
 
         for line in data.lines() {
-            if !line.contains("vdso") {
+            if !line.contains("[vdso]") {
                 continue;
             }
             let (range, _) = line.split_once(" ").unwrap();
@@ -44,7 +44,7 @@ impl vDSO {
         return Err("No vDSO mapped in memory range. Cannot continue".into());
     }
     pub(crate) fn dynsyms(buf: Vec<u8>) -> Vec<DynSym> {
-        let r = Elf::parse(&buf).unwrap();
+        let r = Elf::parse(&buf).expect("bad elf");
 
         let mut align = 0;
         for h in r.section_headers {
@@ -375,6 +375,50 @@ mod tests {
                 name: "getcpu".to_string(),
                 address: 3200,
                 size: 48,
+            },
+        ];
+        assert_eq!(parsed, expected);
+    }
+    #[test]
+    fn test_dynsyms_riscv64() {
+        let test_vdso =
+            fs::read("src/test_files/test_vdso_elf_2").expect("Unable to read test file");
+        let parsed = vDSO::dynsyms(test_vdso);
+        let expected = vec![
+            DynSym {
+                name: "".to_string(),
+                address: 1312,
+                size: 0,
+            },
+            DynSym {
+                name: "__vdso_gettimeofday".to_string(),
+                address: 2330,
+                size: 200,
+            },
+            DynSym {
+                name: "__vdso_clock_getres".to_string(),
+                address: 2530,
+                size: 92,
+            },
+            DynSym {
+                name: "__vdso_rt_sigreturn".to_string(),
+                address: 2048,
+                size: 8,
+            },
+            DynSym {
+                name: "__vdso_clock_gettime".to_string(),
+                address: 2058,
+                size: 272,
+            },
+            DynSym {
+                name: "__vdso_flush_icache".to_string(),
+                address: 2632,
+                size: 12,
+            },
+            DynSym {
+                name: "__vdso_getcpu".to_string(),
+                address: 2620,
+                size: 12,
             },
         ];
         assert_eq!(parsed, expected);
