@@ -66,7 +66,7 @@ impl vDSO {
             };
             ret.push(DynSym {
                 name: sym_name.as_str().to_string(),
-                address: ds.st_value,
+                address: ds.st_value & 0xffff,
                 size: symsize,
             });
         }
