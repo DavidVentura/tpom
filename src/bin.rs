@@ -2,6 +2,7 @@ use std::time::SystemTime;
 
 use tpom::{ClockController, TimeSpec, TimeVal};
 
+
 extern crate tpom;
 
 fn myclock(_clockid: i32) -> TimeSpec {
@@ -18,6 +19,7 @@ fn mygttod() -> TimeVal {
     }
 }
 pub fn main() {
+    env_logger::init();
     ClockController::restore();
     println!("Now: {:?}", SystemTime::now());
     ClockController::overwrite(Some(myclock), None, None, Some(mygttod));

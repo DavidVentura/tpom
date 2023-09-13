@@ -159,6 +159,7 @@ impl ClockController {
                 libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
             );
         }
+        log::debug!("Found vDSO starting at {:#x}, ending at {:#x}, for a size of {} ({:#x})", r.start, r.end, r.end - r.start, r.end - r.start);
         let b = vDSO::read(&r);
         BACKUP_VDSO.lock().unwrap().clear();
         BACKUP_VDSO.lock().unwrap().append(&mut b.clone());

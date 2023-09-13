@@ -207,6 +207,7 @@ impl vDSO {
         jmp_address: u64,
         symbol_size: usize,
     ) {
+        log::debug!("Overwriting elf_offset {:#x}, symbol_address {:#x}, with jmp_address {:#x}", elf_offset, symbol_address, jmp_address);
         let dst_addr = elf_offset + symbol_address;
         let opcodes = vDSO::generate_opcodes(jmp_address as usize, symbol_size);
         unsafe {
