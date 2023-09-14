@@ -1,7 +1,7 @@
 //! # TPOM
 //! Allows replacing time-related functions in the vDSO ([1](https://man7.org/linux/man-pages/man7/vdso.7.html), [2](https://en.wikipedia.org/wiki/VDSO)) with user-provided functions.  
 //!
-//! Only works on Linux. Is currently limited to x86_64, though it could be extended for other architectures.
+//! Only works on Linux. Is currently limited to x86_64, aarch64 and riscv, though it could be extended for other architectures.
 //!
 //! Replaces these functions, if provided:
 //!
@@ -84,6 +84,81 @@ pub type ClockGetTimeOfDayCb = fn() -> TimeVal; // FIXME: Needs to take a TZ
 
 pub struct ClockController {}
 
+#[derive(Clone)]
+pub struct VDSOFun {
+    pub name: String,
+    //pub kind: Kind,
+    addr: u64,
+    size: u64,
+}
+
+pub struct BackupEntry {
+    v: VDSOFun,
+    data: Vec<u8>,
+}
+
+pub struct GTVdso {
+    v: VDSOFun,
+}
+
+#[derive(PartialEq)]
+pub enum Kind {
+    GetTime,
+    Time,
+    ClockGetRes,
+    GetTimeOfDay,
+}
+
+pub enum Cb {
+    TimeCb(TimeCb),
+}
+
+impl BackupEntry {
+    pub fn restore(&self) {
+        let r = vDSO::find(None).unwrap();
+        vDSO::restore(r.start as u64, self.v.addr, &self.data)
+    }
+}
+impl Kind {
+    pub fn trampoline(&self) -> u64 {
+        match self {
+            Kind::GetTime => my_clockgettime as *const () as u64,
+            _ => 0,
+        }
+    }
+}
+
+impl GTVdso {
+    fn trampoline(&self) -> u64 {
+        my_clockgettime as *const () as u64
+    }
+    pub fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry {
+        let r = vDSO::find(None).unwrap();
+        let mut w = CLOCK_GT_CB.write().unwrap();
+        *w = Some(cb);
+        unsafe {
+            libc::mprotect(
+                r.start as *mut libc::c_void,
+                r.end - r.start,
+                libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
+            );
+        }
+        //let backup = vDSO::read_symbol(r.start as u64, self.v.addr, self.v.size as usize);
+        let buf = vDSO::read(&r);
+        let backup = &buf[(self.v.addr as usize)..(self.v.addr + self.v.size) as usize];
+        vDSO::overwrite(
+            r.start as u64,
+            self.v.addr,
+            self.trampoline(),
+            self.v.size as usize,
+        );
+        // vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
+        BackupEntry {
+            v: self.v.clone(),
+            data: backup.to_owned(),
+        }
+    }
+}
 impl ClockController {
     pub fn is_overwritten() -> bool {
         //! Whether the vDSO is currently overwritten
@@ -110,6 +185,67 @@ impl ClockController {
             }
         }
     }
+
+    pub fn get_time() -> Option<GTVdso> {
+        /*
+         */
+        match ClockController::entry(Kind::GetTime) {
+            None => None,
+            Some(v) => Some(GTVdso { v }),
+        }
+    }
+
+    fn entry(wanted: Kind) -> Option<VDSOFun> {
+        let r = vDSO::find(None).unwrap();
+        let buf = vDSO::read(&r);
+        for ds in vDSO::dynsyms(buf) {
+            let kind = match ds.name.as_str() {
+                "clock_gettime" => Some(Kind::GetTime),
+                &_ => None,
+            };
+            if kind.is_none() {
+                continue;
+            }
+            if kind.as_ref() != Some(&wanted) {
+                continue;
+            }
+            let v = VDSOFun {
+                name: ds.name,
+                addr: ds.address,
+                size: ds.size,
+            };
+            match kind {
+                None => {}
+                Some(Kind::GetTime) => return Some(v),
+                Some(_) => {}
+            }
+        }
+        None
+    }
+    /*
+    pub fn entries() -> Vec<VDSOFun> {
+        let mut ret: Vec<VDSOFun> = Vec::new();
+        let r = vDSO::find(None).unwrap();
+        let buf = vDSO::read(&r);
+        let _gettime = vec!["clock_gettime"];
+        for ds in vDSO::dynsyms(buf) {
+            let kind = match ds.name.as_str() {
+                "clock_gettime" => Some(Kind::GetTime),
+                &_ => None,
+            };
+            if kind.is_none() {
+                continue;
+            }
+            ret.push(VDSOFun {
+                name: ds.name,
+                addr: ds.address,
+                size: ds.size,
+                kind: kind.unwrap(),
+            });
+        }
+        return ret;
+    }
+    */
 
     pub fn overwrite(
         clockgettime_cb: Option<ClockGetTimeCb>,

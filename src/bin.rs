@@ -1,6 +1,6 @@
-use std::time::SystemTime;
+use std::{error::Error, time::SystemTime};
 
-use tpom::{ClockController, TimeSpec, TimeVal};
+use tpom::{ClockController, Kind, Time, TimeSpec, TimeVal};
 
 extern crate tpom;
 
@@ -17,13 +17,19 @@ fn mygttod() -> TimeVal {
         micros: 3,
     }
 }
-pub fn main() {
-    ClockController::restore();
+
+fn my_time() -> Time {
+    666
+}
+
+pub fn main() -> Result<(), Box<dyn Error>> {
     println!("Now: {:?}", SystemTime::now());
-    ClockController::overwrite(Some(myclock), None, None, Some(mygttod));
     println!("Executing");
-    println!("Now: {:?}", SystemTime::now());
-    ClockController::restore();
-    println!("Now: {:?}", SystemTime::now());
-    ClockController::restore();
+    let og = ClockController::get_time()
+        .ok_or("Could not find clock")?
+        .overwrite(myclock);
+    println!("Done, Now: {:?}, restoring", SystemTime::now());
+    og.restore();
+    println!("Restored, Now: {:?}", SystemTime::now());
+    Ok(())
 }

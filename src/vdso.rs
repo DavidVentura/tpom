@@ -23,6 +23,9 @@ impl vDSO {
         return buf;
     }
     pub(crate) fn find(path: Option<&str>) -> Result<Range, Box<dyn Error>> {
+        // could use getauxval(AT_SYSINFO_EHDR)
+        // but calculating the length
+
         let data = fs::read_to_string(path.unwrap_or("/proc/self/maps"))?;
 
         for line in data.lines() {
@@ -216,6 +219,17 @@ impl vDSO {
                 std::ptr::write_bytes((dst_addr as usize + i) as *mut u8, *b, 1);
             }
         }
+    }
+    pub(crate) fn restore(elf_offset: u64, symbol_address: u64, opcodes: &[u8]) {
+        let dst_addr = elf_offset + symbol_address;
+        unsafe {
+            for (i, b) in opcodes.iter().enumerate() {
+                std::ptr::write_bytes((dst_addr as usize + i) as *mut u8, *b, 1);
+            }
+        }
+    }
+    pub(crate) fn read_symbol(elf_offset: u64, symbol_address: u64, len: u64) -> Vec<u8> {
+        vec![]
     }
 }
 
