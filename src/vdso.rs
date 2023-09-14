@@ -47,10 +47,12 @@ impl vDSO {
         let r = Elf::parse(&buf).expect("bad elf");
 
         let mut align = 0;
+        let mut base = 0;
         for h in r.section_headers {
             let name = get_str_til_nul(&r.shdr_strtab, h.sh_name);
             if h.sh_type == goblin::elf::section_header::SHT_PROGBITS && name == ".text" {
                 align = h.sh_addralign;
+                base = h.sh_addr - h.sh_offset;
             }
         }
         let mut ret = vec![];
@@ -66,7 +68,7 @@ impl vDSO {
             };
             ret.push(DynSym {
                 name: sym_name.as_str().to_string(),
-                address: ds.st_value,
+                address: ds.st_value - base,
                 size: symsize,
             });
         }
