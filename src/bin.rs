@@ -1,13 +1,20 @@
 use std::{error::Error, time::SystemTime};
 
-use tpom::{ClockController, Kind, Time, TimeSpec, TimeVal};
+use tpom::{get_time, TVDSOFun, Time, TimeSpec, TimeVal};
 
 extern crate tpom;
 
+fn my_other_clock(_clockid: i32) -> TimeSpec {
+    TimeSpec {
+        seconds: 222,
+        nanos: 222,
+    }
+}
+
 fn myclock(_clockid: i32) -> TimeSpec {
     TimeSpec {
-        seconds: 1,
-        nanos: 3,
+        seconds: 111,
+        nanos: 333,
     }
 }
 
@@ -25,9 +32,7 @@ fn my_time() -> Time {
 pub fn main() -> Result<(), Box<dyn Error>> {
     println!("Now: {:?}", SystemTime::now());
     println!("Executing");
-    let og = ClockController::get_time()
-        .ok_or("Could not find clock")?
-        .overwrite(myclock);
+    let og = get_time().ok_or("Could not find clock")?.overwrite(myclock);
     println!("Done, Now: {:?}, restoring", SystemTime::now());
     og.restore();
     println!("Restored, Now: {:?}", SystemTime::now());

@@ -42,7 +42,6 @@ pub(crate) mod trampolines;
 pub(crate) mod vdso;
 
 use libc;
-use std::collections::HashMap;
 use std::fs;
 
 use crate::trampolines::*;
@@ -82,8 +81,6 @@ pub type ClockGetResCb = fn(i32) -> TimeSpec;
 /// Considered infallible
 pub type ClockGetTimeOfDayCb = fn() -> TimeVal; // FIXME: Needs to take a TZ
 
-pub struct ClockController {}
-
 #[derive(Clone)]
 pub struct VDSOFun {
     pub name: String,
@@ -102,15 +99,11 @@ pub struct GTVdso {
 }
 
 #[derive(PartialEq)]
-pub enum Kind {
+enum Kind {
     GetTime,
     Time,
     ClockGetRes,
     GetTimeOfDay,
-}
-
-pub enum Cb {
-    TimeCb(TimeCb),
 }
 
 impl BackupEntry {
@@ -119,195 +112,75 @@ impl BackupEntry {
         vDSO::restore(r.start as u64, self.v.addr, &self.data)
     }
 }
-impl Kind {
-    pub fn trampoline(&self) -> u64 {
-        match self {
-            Kind::GetTime => my_clockgettime as *const () as u64,
-            _ => 0,
-        }
-    }
+
+pub trait TVDSOFun {
+    fn trampoline(&self) -> u64;
+    fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry;
 }
 
-impl GTVdso {
+fn _overwrite(v: &VDSOFun, trampoline: u64) -> BackupEntry {
+    let r = vDSO::find(None).unwrap();
+    unsafe {
+        libc::mprotect(
+            r.start as *mut libc::c_void,
+            r.end - r.start,
+            libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
+        );
+    }
+    //let backup = vDSO::read_symbol(r.start as u64, v.addr, v.size as usize);
+    let buf = vDSO::read(&r);
+    let backup = &buf[(v.addr as usize)..(v.addr + v.size) as usize];
+    vDSO::overwrite(r.start as u64, v.addr, trampoline, v.size as usize);
+    // vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
+    BackupEntry {
+        v: v.clone(),
+        data: backup.to_owned(),
+    }
+}
+impl TVDSOFun for GTVdso {
     fn trampoline(&self) -> u64 {
         my_clockgettime as *const () as u64
     }
-    pub fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry {
-        let r = vDSO::find(None).unwrap();
+    fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry {
         let mut w = CLOCK_GT_CB.write().unwrap();
         *w = Some(cb);
-        unsafe {
-            libc::mprotect(
-                r.start as *mut libc::c_void,
-                r.end - r.start,
-                libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
-            );
-        }
-        //let backup = vDSO::read_symbol(r.start as u64, self.v.addr, self.v.size as usize);
-        let buf = vDSO::read(&r);
-        let backup = &buf[(self.v.addr as usize)..(self.v.addr + self.v.size) as usize];
-        vDSO::overwrite(
-            r.start as u64,
-            self.v.addr,
-            self.trampoline(),
-            self.v.size as usize,
-        );
-        // vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
-        BackupEntry {
-            v: self.v.clone(),
-            data: backup.to_owned(),
-        }
+        _overwrite(&self.v, self.trampoline())
     }
 }
-impl ClockController {
-    pub fn is_overwritten() -> bool {
-        //! Whether the vDSO is currently overwritten
-        let r = vDSO::find(None).unwrap();
-        r.writable
-    }
-    pub fn restore() {
-        //! Restore the vDSO to its original state, if it is currently overwritten
-        let r = vDSO::find(None).unwrap();
-        if !r.writable {
-            return;
-        }
-        if let Ok(b) = BACKUP_VDSO.lock() {
-            if b.len() == 0 {
-                return;
-            }
-            unsafe {
-                std::ptr::copy_nonoverlapping(b.as_ptr(), r.start as *mut u8, b.len());
-                libc::mprotect(
-                    r.start as *mut libc::c_void,
-                    r.end - r.start,
-                    libc::PROT_EXEC | libc::PROT_READ,
-                );
-            }
-        }
-    }
 
-    pub fn get_time() -> Option<GTVdso> {
-        /*
-         */
-        match ClockController::entry(Kind::GetTime) {
-            None => None,
-            Some(v) => Some(GTVdso { v }),
-        }
+pub fn get_time() -> Option<GTVdso> {
+    match entry(Kind::GetTime) {
+        None => None,
+        Some(v) => Some(GTVdso { v }),
     }
+}
 
-    fn entry(wanted: Kind) -> Option<VDSOFun> {
-        let r = vDSO::find(None).unwrap();
-        let buf = vDSO::read(&r);
-        for ds in vDSO::dynsyms(buf) {
-            let kind = match ds.name.as_str() {
-                "clock_gettime" => Some(Kind::GetTime),
-                &_ => None,
-            };
-            if kind.is_none() {
-                continue;
-            }
-            if kind.as_ref() != Some(&wanted) {
-                continue;
-            }
-            let v = VDSOFun {
-                name: ds.name,
-                addr: ds.address,
-                size: ds.size,
-            };
-            match kind {
-                None => {}
-                Some(Kind::GetTime) => return Some(v),
-                Some(_) => {}
-            }
+fn entry(wanted: Kind) -> Option<VDSOFun> {
+    let r = vDSO::find(None).unwrap();
+    let buf = vDSO::read(&r);
+    for ds in vDSO::dynsyms(buf) {
+        let kind = match ds.name.as_str() {
+            "clock_gettime" => Some(Kind::GetTime),
+            &_ => None,
+        };
+        if kind.is_none() {
+            continue;
         }
-        None
-    }
-    /*
-    pub fn entries() -> Vec<VDSOFun> {
-        let mut ret: Vec<VDSOFun> = Vec::new();
-        let r = vDSO::find(None).unwrap();
-        let buf = vDSO::read(&r);
-        let _gettime = vec!["clock_gettime"];
-        for ds in vDSO::dynsyms(buf) {
-            let kind = match ds.name.as_str() {
-                "clock_gettime" => Some(Kind::GetTime),
-                &_ => None,
-            };
-            if kind.is_none() {
-                continue;
-            }
-            ret.push(VDSOFun {
-                name: ds.name,
-                addr: ds.address,
-                size: ds.size,
-                kind: kind.unwrap(),
-            });
+        if kind.as_ref() != Some(&wanted) {
+            continue;
         }
-        return ret;
-    }
-    */
-
-    pub fn overwrite(
-        clockgettime_cb: Option<ClockGetTimeCb>,
-        time_cb: Option<TimeCb>,
-        clock_getres: Option<ClockGetResCb>,
-        gettimeofday: Option<ClockGetTimeOfDayCb>,
-    ) {
-        //! Overwrite the vDSO with the user-provided functions.
-        let mut mapping: HashMap<&'static str, u64> = HashMap::new();
-        if let Some(g) = clockgettime_cb {
-            let mut w = CLOCK_GT_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_clockgettime as *const () as u64;
-            mapping.insert("clock_gettime", addr);
-            mapping.insert("__vdso_clock_gettime", addr);
-            mapping.insert("__kernel_clock_gettime", addr); // arch64
-        }
-        if let Some(g) = time_cb {
-            let mut w = TIME_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_time as *const () as u64;
-            mapping.insert("time", addr);
-            mapping.insert("__vdso_time", addr);
-        }
-        if let Some(g) = clock_getres {
-            let mut w = CLOCK_RES_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_clockgetres as *const () as u64;
-            mapping.insert("clock_getres", addr);
-            mapping.insert("__vdso_clock_getres", addr);
-            mapping.insert("__kernel_clock_getres", addr); // arch64
-        }
-        if let Some(g) = gettimeofday {
-            let mut w = CLOCK_GTOD_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_gettimeofday as *const () as u64;
-            mapping.insert("gettimeofday", addr);
-            mapping.insert("__vdso_gettimeofday", addr);
-            mapping.insert("__kernel_gettimeofday", addr); // arch64
-        }
-
-        let r = vDSO::find(None).unwrap();
-        unsafe {
-            libc::mprotect(
-                r.start as *mut libc::c_void,
-                r.end - r.start,
-                libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
-            );
-        }
-        let b = vDSO::read(&r);
-        BACKUP_VDSO.lock().unwrap().clear();
-        BACKUP_VDSO.lock().unwrap().append(&mut b.clone());
-        ClockController::mess_vdso(b, r.start as u64, mapping);
-    }
-    fn mess_vdso(buf: Vec<u8>, elf_offset: u64, mapping: HashMap<&'static str, u64>) {
-        for ds in vDSO::dynsyms(buf) {
-            if let Some(dst_addr) = mapping.get(ds.name.as_str()) {
-                // println!("Overriding dyn sym {} at {:x}", ds.name, dst_addr);
-                vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
-            }
+        let v = VDSOFun {
+            name: ds.name,
+            addr: ds.address,
+            size: ds.size,
+        };
+        match kind {
+            None => {}
+            Some(Kind::GetTime) => return Some(v),
+            Some(_) => {}
         }
     }
+    None
 }
 
 #[allow(dead_code)]
