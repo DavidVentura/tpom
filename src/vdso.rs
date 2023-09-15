@@ -109,6 +109,9 @@ impl vDSO {
         return ret;
     }
 
+    pub fn restore(&self) {
+        self.overwrite(0, &self.data)
+    }
     pub(crate) fn symbol_code(&self, symbol_name: &str) -> &[u8] {
         for sym in self.dynsyms() {
             if sym.name == symbol_name {
