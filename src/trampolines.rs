@@ -16,7 +16,7 @@ pub(crate) extern "C" fn my_time(t: *mut libc::time_t) -> libc::time_t {
             *t = res;
         }
     }
-    return res;
+    res
 }
 
 /// Trampoline function between C and user's function. Panics if function was not set.
@@ -28,7 +28,7 @@ pub(crate) extern "C" fn my_clockgettime(clockid: libc::clockid_t, ts: *mut libc
             (*ts).tv_nsec = res.nanos;
         }
     }
-    return 0;
+    0
 }
 
 /// Trampoline function between C and user's function. Panics if function was not set.
@@ -40,7 +40,7 @@ pub(crate) extern "C" fn my_clockgetres(clockid: libc::clockid_t, ts: *mut libc:
             (*ts).tv_nsec = res.nanos;
         }
     }
-    return 0;
+    0
 }
 
 /// Trampoline function between C and user's function. Panics if function was not set.

@@ -44,8 +44,6 @@ mod opcodes;
 pub(crate) mod trampolines;
 pub mod vdso;
 
-use libc;
-
 use crate::trampolines::*;
 use crate::vdso::vDSO;
 
@@ -123,7 +121,7 @@ fn _overwrite<'a>(v: &'a VDSOFun, trampoline: usize) -> BackupEntry<'a> {
     let backup = v.v.symbol_code(&v.name);
     v.v.overwrite(v.addr, &opcodes);
     BackupEntry {
-        v: &v,
+        v,
         data: backup.to_owned(),
     }
 }

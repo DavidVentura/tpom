@@ -25,7 +25,7 @@ impl vDSO {
         let f = File::open("/proc/self/mem").unwrap();
         f.read_at(&mut buf, range.start as u64).unwrap();
         drop(f);
-        return buf;
+        buf
     }
 
     pub(crate) fn change_mode(&self, write: bool) {
@@ -53,17 +53,17 @@ impl vDSO {
             if !line.contains("[vdso]") {
                 continue;
             }
-            let (range, _) = line.split_once(" ").unwrap();
-            let (start, end) = range.split_once("-").unwrap();
+            let (range, _) = line.split_once(' ').unwrap();
+            let (start, end) = range.split_once('-').unwrap();
             let parts: Vec<&str> = line.split_whitespace().collect();
             let perms = parts[1];
             return Ok(Range {
                 start: usize::from_str_radix(start, 16).unwrap(),
                 end: usize::from_str_radix(end, 16).unwrap(),
-                writable: perms.contains("w"),
+                writable: perms.contains('w'),
             });
         }
-        return Err("No vDSO mapped in memory range. Cannot continue".into());
+        Err("No vDSO mapped in memory range. Cannot continue".into())
     }
 
     pub fn open() -> Result<Self, Box<dyn Error>> {
@@ -72,10 +72,10 @@ impl vDSO {
 
     pub fn open_at(path: Option<&str>) -> Result<Self, Box<dyn Error>> {
         let r = vDSO::parse_mem_map(path)?;
-        return Ok(vDSO {
+        Ok(vDSO {
             range: r,
             data: vDSO::read(&r),
-        });
+        })
     }
     pub(crate) fn dynsyms(&self) -> Vec<DynSym> {
         let r = Elf::parse(&self.data).expect("bad elf");
@@ -106,7 +106,7 @@ impl vDSO {
                 size: symsize as usize,
             });
         }
-        return ret;
+        ret
     }
 
     pub fn restore(&self) {
@@ -127,7 +127,7 @@ impl vDSO {
         self.change_mode(true);
         for (i, b) in opcodes.iter().enumerate() {
             unsafe {
-                std::ptr::write_bytes((dst_addr as usize + i) as *mut u8, *b, 1);
+                std::ptr::write_bytes((dst_addr + i) as *mut u8, *b, 1);
             }
         }
         self.change_mode(false);
@@ -139,7 +139,7 @@ impl vDSO {
                 name: ds.name.clone(),
                 addr: ds.address,
                 size: ds.size,
-                v: &self,
+                v: self,
             };
             let kind = match ds.name.as_str() {
                 // Per the man page:
@@ -168,7 +168,7 @@ impl vDSO {
 
     pub fn dump(&self, suffix: Option<&str>) {
         let fname = format!("/tmp/vdso{}", suffix.unwrap_or(""));
-        fs::write(&fname, &self.data).expect(&format!("Unable to write file {}", fname));
+        fs::write(&fname, &self.data).unwrap_or_else(|_| panic!("Unable to write file {}", fname));
     }
 }
 
@@ -180,7 +180,7 @@ fn get_str_til_nul(s: &Strtab, at: usize) -> String {
         }
         ret.push(c.into());
     }
-    return ret;
+    ret
 }
 
 #[cfg(test)]
