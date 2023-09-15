@@ -142,17 +142,12 @@ impl vDSO {
                 v: &self,
             };
             let kind = match ds.name.as_str() {
+                // Per the man page:
+                // > "All of these symbols are also available without the "__vdso_" prefix, but you should ignore those."
                 "__vdso_clock_gettime" => Some(Kind::GetTime),
-                "clock_gettime" => Some(Kind::GetTime),
-
                 "__vdso_gettimeofday" => Some(Kind::GetTimeOfDay),
-                "gettimeofday" => Some(Kind::GetTimeOfDay),
-
                 "__vdso_clock_getres" => Some(Kind::ClockGetRes),
-                "clock_getres" => Some(Kind::ClockGetRes),
-
                 "__vdso_time" => Some(Kind::Time),
-                "time" => Some(Kind::Time),
                 &_ => None,
             };
             if kind.is_none() {
