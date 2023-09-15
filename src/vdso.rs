@@ -271,7 +271,6 @@ mod tests {
         ];
         assert_eq!(parsed, expected);
     }
-    /*
     #[test]
     fn test_dynsyms_riscv64() {
         let test_vdso =
@@ -324,5 +323,4 @@ mod tests {
         ];
         assert_eq!(parsed, expected);
     }
-    */
 }
