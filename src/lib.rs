@@ -1,7 +1,7 @@
 //! # TPOM
-//! Allows replacing time-related functions in the vDSO ([1](https://man7.org/linux/man-pages/man7/vdso.7.html), [2](https://en.wikipedia.org/wiki/VDSO)) with user-provided functions.  
+//! Allows replacing time-related functions in the vDSO<sup>[1](https://man7.org/linux/man-pages/man7/vdso.7.html), [2](https://en.wikipedia.org/wiki/VDSO)</sup> with user-provided functions.  
 //!
-//! Only works on Linux. Is currently limited to x86_64, though it could be extended for other architectures.
+//! Only works on Linux. Is currently limited to x86_64, AArch64 and RISC-V, though it could be extended for other architectures.
 //!
 //! Replaces these functions, if provided:
 //!
@@ -17,33 +17,34 @@
 //! use tpom::*;
 //! use std::time::SystemTime;
 //!
-//! ClockController::overwrite(
-//!     Some(|_| TimeSpec {
-//!         seconds: 1,
-//!         nanos: 1,
-//!     }),
-//!     None,
-//!     None,
-//!     None,
-//! );
+//! fn myclock(_clockid: i32) -> TimeSpec {
+//!     TimeSpec {
+//!         seconds: 111,
+//!         nanos: 333,
+//!     }
+//! }
+//!
+//! let v = vdso::vDSO::open().unwrap();
+//! let og = v.entry(Kind::GetTime).ok_or("Could not find clock").unwrap();
+//! let backup = og.overwrite(myclock);
+//!
 //! // Clock is frozen; all calls to time return the same values
 //! let time_a = SystemTime::now();
 //! let time_b = SystemTime::now();
 //! assert_eq!(time_a, time_b);
 //!
 //! // Restore clock; all calls to time return unique values
-//! ClockController::restore();
+//! backup.restore();
 //! let time_c = SystemTime::now();
 //! let time_d = SystemTime::now();
 //! assert_ne!(time_c, time_d);
 //! ```
 
+mod opcodes;
 pub(crate) mod trampolines;
-pub(crate) mod vdso;
+pub mod vdso;
 
 use libc;
-use std::collections::HashMap;
-use std::fs;
 
 use crate::trampolines::*;
 use crate::vdso::vDSO;
@@ -82,103 +83,54 @@ pub type ClockGetResCb = fn(i32) -> TimeSpec;
 /// Considered infallible
 pub type ClockGetTimeOfDayCb = fn() -> TimeVal; // FIXME: Needs to take a TZ
 
-pub struct ClockController {}
+#[derive(Clone)]
+pub struct VDSOFun<'a> {
+    pub name: String,
+    addr: usize,
+    size: usize,
+    v: &'a vDSO,
+}
 
-impl ClockController {
-    pub fn is_overwritten() -> bool {
-        //! Whether the vDSO is currently overwritten
-        let r = vDSO::find(None).unwrap();
-        r.writable
-    }
-    pub fn restore() {
-        //! Restore the vDSO to its original state, if it is currently overwritten
-        let r = vDSO::find(None).unwrap();
-        if !r.writable {
-            return;
-        }
-        if let Ok(b) = BACKUP_VDSO.lock() {
-            if b.len() == 0 {
-                return;
-            }
-            unsafe {
-                std::ptr::copy_nonoverlapping(b.as_ptr(), r.start as *mut u8, b.len());
-                libc::mprotect(
-                    r.start as *mut libc::c_void,
-                    r.end - r.start,
-                    libc::PROT_EXEC | libc::PROT_READ,
-                );
-            }
-        }
-    }
+pub struct BackupEntry<'a> {
+    v: &'a VDSOFun<'a>,
+    data: Vec<u8>,
+}
 
-    pub fn overwrite(
-        clockgettime_cb: Option<ClockGetTimeCb>,
-        time_cb: Option<TimeCb>,
-        clock_getres: Option<ClockGetResCb>,
-        gettimeofday: Option<ClockGetTimeOfDayCb>,
-    ) {
-        //! Overwrite the vDSO with the user-provided functions.
-        let mut mapping: HashMap<&'static str, u64> = HashMap::new();
-        if let Some(g) = clockgettime_cb {
-            let mut w = CLOCK_GT_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_clockgettime as *const () as u64;
-            mapping.insert("clock_gettime", addr);
-            mapping.insert("__vdso_clock_gettime", addr);
-            mapping.insert("__kernel_clock_gettime", addr); // arch64
-        }
-        if let Some(g) = time_cb {
-            let mut w = TIME_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_time as *const () as u64;
-            mapping.insert("time", addr);
-            mapping.insert("__vdso_time", addr);
-        }
-        if let Some(g) = clock_getres {
-            let mut w = CLOCK_RES_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_clockgetres as *const () as u64;
-            mapping.insert("clock_getres", addr);
-            mapping.insert("__vdso_clock_getres", addr);
-            mapping.insert("__kernel_clock_getres", addr); // arch64
-        }
-        if let Some(g) = gettimeofday {
-            let mut w = CLOCK_GTOD_CB.write().unwrap();
-            *w = Some(g);
-            let addr = my_gettimeofday as *const () as u64;
-            mapping.insert("gettimeofday", addr);
-            mapping.insert("__vdso_gettimeofday", addr);
-            mapping.insert("__kernel_gettimeofday", addr); // arch64
-        }
+pub struct GTVdso<'a> {
+    v: VDSOFun<'a>,
+}
 
-        let r = vDSO::find(None).unwrap();
-        unsafe {
-            libc::mprotect(
-                r.start as *mut libc::c_void,
-                r.end - r.start,
-                libc::PROT_EXEC | libc::PROT_WRITE | libc::PROT_READ,
-            );
-        }
-        let b = vDSO::read(&r);
-        BACKUP_VDSO.lock().unwrap().clear();
-        BACKUP_VDSO.lock().unwrap().append(&mut b.clone());
-        ClockController::mess_vdso(b, r.start as u64, mapping);
-    }
-    fn mess_vdso(buf: Vec<u8>, elf_offset: u64, mapping: HashMap<&'static str, u64>) {
-        for ds in vDSO::dynsyms(buf) {
-            if let Some(dst_addr) = mapping.get(ds.name.as_str()) {
-                // println!("Overriding dyn sym {} at {:x}", ds.name, dst_addr);
-                vDSO::overwrite(elf_offset, ds.address, *dst_addr, ds.size as usize);
-            }
-        }
+#[derive(PartialEq)]
+pub enum Kind {
+    GetTime,
+    Time,
+    ClockGetRes,
+    GetTimeOfDay,
+}
+
+impl<'a> BackupEntry<'a> {
+    pub fn restore(&self) {
+        self.v.v.overwrite(self.v.addr, &self.data)
     }
 }
 
-#[allow(dead_code)]
-pub fn dump_vdso(suffix: Option<&str>) {
-    println!("Dumping vDSO");
-    let r = vDSO::find(None).unwrap();
-    let cur_vdso = vDSO::read(&r);
-    let fname = format!("/tmp/vdso{}", suffix.unwrap_or(""));
-    fs::write(&fname, cur_vdso).expect(&format!("Unable to write file {}", fname));
+pub trait TVDSOFun {
+    fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry;
+}
+
+fn _overwrite<'a>(v: &'a VDSOFun, trampoline: usize) -> BackupEntry<'a> {
+    let opcodes = opcodes::generate_opcodes(trampoline, v.size);
+    let backup = v.v.symbol_code(&v.name);
+    v.v.overwrite(v.addr, &opcodes);
+    BackupEntry {
+        v: &v,
+        data: backup.to_owned(),
+    }
+}
+impl<'a> TVDSOFun for GTVdso<'a> {
+    fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry {
+        let mut w = CLOCK_GT_CB.write().unwrap();
+        *w = Some(cb);
+        _overwrite(&self.v, my_clockgettime as *const () as usize)
+    }
 }
