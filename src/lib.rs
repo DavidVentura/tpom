@@ -1,5 +1,5 @@
 //! # TPOM
-//! Allows replacing time-related functions in the vDSO ([1](https://man7.org/linux/man-pages/man7/vdso.7.html), [2](https://en.wikipedia.org/wiki/VDSO)) with user-provided functions.  
+//! Allows replacing time-related functions in the vDSO<sup>[1](https://man7.org/linux/man-pages/man7/vdso.7.html), [2](https://en.wikipedia.org/wiki/VDSO)</sup> with user-provided functions.  
 //!
 //! Only works on Linux. Is currently limited to x86_64, AArch64 and RISC-V, though it could be extended for other architectures.
 //!
@@ -24,7 +24,7 @@
 //!     }
 //! }
 //!
-//! let v = vdso::vDSO::find(None).unwrap();
+//! let v = vdso::vDSO::open().unwrap();
 //! let og = v.entry(Kind::GetTime).ok_or("Could not find clock").unwrap();
 //! let backup = og.overwrite(myclock);
 //!
@@ -110,7 +110,7 @@ pub enum Kind {
 
 impl<'a> BackupEntry<'a> {
     pub fn restore(&self) {
-        let r = vDSO::find(None).unwrap();
+        let r = vDSO::open().unwrap();
         r.overwrite(self.v.addr, &self.data)
     }
 }

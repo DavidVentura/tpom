@@ -21,7 +21,7 @@ mod tests {
     #[test]
     #[serial]
     fn it_freezes_system_clock() {
-        let v = vdso::vDSO::find(None).unwrap();
+        let v = vdso::vDSO::open().unwrap();
         let og = v
             .entry(Kind::GetTime)
             .ok_or("Could not find clock")

@@ -66,7 +66,11 @@ impl vDSO {
         return Err("No vDSO mapped in memory range. Cannot continue".into());
     }
 
-    pub fn find(path: Option<&str>) -> Result<Self, Box<dyn Error>> {
+    pub fn open() -> Result<Self, Box<dyn Error>> {
+        vDSO::open_at(None)
+    }
+
+    pub fn open_at(path: Option<&str>) -> Result<Self, Box<dyn Error>> {
         let r = vDSO::parse_mem_map(path)?;
         return Ok(vDSO {
             range: r,

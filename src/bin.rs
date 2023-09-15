@@ -25,7 +25,7 @@ fn my_time() -> Time {
 pub fn main() -> Result<(), Box<dyn Error>> {
     println!("Now: {:?}", SystemTime::now());
     println!("Executing");
-    let v = vdso::vDSO::find(None)?;
+    let v = vdso::vDSO::open()?;
     let og = v.entry(Kind::GetTime).ok_or("Could not find clock")?;
     let backup = og.overwrite(myclock);
     println!("Done, Now: {:?}, restoring", SystemTime::now());
