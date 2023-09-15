@@ -110,8 +110,7 @@ pub enum Kind {
 
 impl<'a> BackupEntry<'a> {
     pub fn restore(&self) {
-        let r = vDSO::open().unwrap();
-        r.overwrite(self.v.addr, &self.data)
+        self.v.v.overwrite(self.v.addr, &self.data)
     }
 }
 
