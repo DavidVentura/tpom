@@ -115,7 +115,7 @@ impl BackupEntry {
 
 pub trait TVDSOFun {
     fn trampoline(&self) -> u64;
-    fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry;
+    fn overwrite(&self, fn_addr: u64) -> BackupEntry;
 }
 
 fn _overwrite(v: &VDSOFun, trampoline: u64) -> BackupEntry {
@@ -141,10 +141,11 @@ impl TVDSOFun for GTVdso {
     fn trampoline(&self) -> u64 {
         my_clockgettime as *const () as u64
     }
-    fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry {
-        let mut w = CLOCK_GT_CB.write().unwrap();
-        *w = Some(cb);
-        _overwrite(&self.v, self.trampoline())
+    //fn overwrite(&self, cb: ClockGetTimeCb) -> BackupEntry {
+    fn overwrite(&self, fn_addr: u64) -> BackupEntry {
+        //let mut w = CLOCK_GT_CB.write().unwrap();
+        //*w = Some(cb);
+        _overwrite(&self.v, fn_addr)
     }
 }
 
