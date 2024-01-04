@@ -24,7 +24,7 @@
 //!     }
 //! }
 //!
-//! let v = vdso::vDSO::open().unwrap();
+//! let v = vdso::vDSO::read().unwrap();
 //! let og = v.entry(Kind::GetTime).ok_or("Could not find clock").unwrap();
 //! let backup = og.overwrite(myclock);
 //!
@@ -43,16 +43,10 @@
 mod opcodes;
 pub(crate) mod trampolines;
 pub mod vdso;
+pub mod auxv;
 
 use crate::trampolines::*;
 use crate::vdso::vDSO;
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Range {
-    start: usize,
-    end: usize,
-    writable: bool,
-}
 
 pub type Time = libc::time_t; // as libc::time_t
 

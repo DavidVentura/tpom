@@ -1,10 +1,9 @@
-use crate::Range;
 use crate::*;
 use goblin::elf::*;
 use goblin::strtab::Strtab;
+use core::slice;
 use std::error::Error;
-use std::fs::{self, File};
-use std::os::unix::prelude::FileExt;
+use std::fs;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct DynSym {
@@ -12,20 +11,33 @@ pub(crate) struct DynSym {
     pub(crate) address: usize,
     pub(crate) size: usize,
 }
+
 #[allow(non_camel_case_types)]
-#[derive(PartialEq, Clone, Debug)]
+#[derive(Debug)]
 pub struct vDSO {
-    range: Range,
+    avv: auxv::AuxVecValues,
     data: Vec<u8>,
 }
 
+#[cfg(target_pointer_width="32")]
+const ELF_HDR_SIZE: usize = 52;
+
+#[cfg(target_pointer_width="64")]
+const ELF_HDR_SIZE: usize = 64;
+
 impl vDSO {
-    pub(crate) fn read(range: &Range) -> Vec<u8> {
-        let mut buf = vec![0; range.end - range.start];
-        let f = File::open("/proc/self/mem").unwrap();
-        f.read_at(&mut buf, range.start as u64).unwrap();
-        drop(f);
-        buf
+    pub fn read() -> Result<vDSO, Box<dyn Error>> {
+        let auxvec = auxv::read_aux_vec()?;
+
+        // As the size of the vDSO is unknown, read first only the header which has constant size
+        let header_bytes: &[u8] = unsafe { slice::from_raw_parts(&*(auxvec.vdso_base as *const u8), ELF_HDR_SIZE) };
+        let bare_header = Elf::parse_header(&header_bytes).unwrap();
+        // Having parsed the header, we can now calculate the len of the vDSO
+        let vdso_len = usize::from(bare_header.e_shnum * bare_header.e_shentsize) + (bare_header.e_shoff as usize);
+        // And with the len, we can read the right amount
+        let vdso_bytes = unsafe { slice::from_raw_parts(&*(auxvec.vdso_base as *const u8), vdso_len) };
+
+        Ok(vDSO {data: vdso_bytes.into(), avv: auxvec })
     }
 
     pub(crate) fn change_mode(&self, write: bool) {
@@ -34,49 +46,19 @@ impl vDSO {
         } else {
             libc::PROT_EXEC | libc::PROT_READ
         };
+        // As we need to mprotect() the vDSO and that can only be done in full pages, we need
+        // to bump the vDSO length to the next page
+        let vdso_size_page_aligned = (self.data.len() + self.avv.page_size-1) & !(self.avv.page_size-1);
         unsafe {
+
             libc::mprotect(
-                self.range.start as *mut libc::c_void,
-                self.range.end - self.range.start,
+                self.avv.vdso_base as *mut libc::c_void,
+                vdso_size_page_aligned,
                 mode,
             );
         }
     }
-    fn parse_mem_map(path: Option<&str>) -> Result<Range, Box<dyn Error>> {
-        // could use getauxval(AT_SYSINFO_EHDR)
-        // but calculating the length is complicated, and i'm not really sure how to
-        // pass a pointer to memory as a &[u8], without specifying length
 
-        let data = fs::read_to_string(path.unwrap_or("/proc/self/maps"))?;
-
-        for line in data.lines() {
-            if !line.contains("[vdso]") {
-                continue;
-            }
-            let (range, _) = line.split_once(' ').unwrap();
-            let (start, end) = range.split_once('-').unwrap();
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            let perms = parts[1];
-            return Ok(Range {
-                start: usize::from_str_radix(start, 16).unwrap(),
-                end: usize::from_str_radix(end, 16).unwrap(),
-                writable: perms.contains('w'),
-            });
-        }
-        Err("No vDSO mapped in memory range. Cannot continue".into())
-    }
-
-    pub fn open() -> Result<Self, Box<dyn Error>> {
-        vDSO::open_at(None)
-    }
-
-    pub fn open_at(path: Option<&str>) -> Result<Self, Box<dyn Error>> {
-        let r = vDSO::parse_mem_map(path)?;
-        Ok(vDSO {
-            range: r,
-            data: vDSO::read(&r),
-        })
-    }
     pub(crate) fn dynsyms(&self) -> Vec<DynSym> {
         let r = Elf::parse(&self.data).expect("bad elf");
 
@@ -123,7 +105,7 @@ impl vDSO {
     /// Overwrites the process' vDSO memory at offset `symbol_address` with `opcodes`.
     /// It is the caller's responsibility to provide the correct amount of data.
     pub(crate) fn overwrite(&self, symbol_address: usize, opcodes: &[u8]) {
-        let dst_addr = self.range.start + symbol_address;
+        let dst_addr = self.avv.vdso_base + symbol_address;
         self.change_mode(true);
         for (i, b) in opcodes.iter().enumerate() {
             unsafe {
@@ -188,26 +170,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_proc_self_maps() {
-        let parsed = vDSO::parse_mem_map(Some("src/test_files/proc/self/maps"));
-        let expected = Range {
-            start: 0x7fff37953000,
-            end: 0x7fff37955000,
-            writable: false,
-        };
-        assert_eq!(parsed.is_ok(), true);
-        assert_eq!(parsed.unwrap(), expected);
-    }
-
-    #[test]
     fn test_dynsyms() {
         let test_vdso =
             fs::read("src/test_files/test_vdso_elf_1").expect("Unable to read test file");
         let a = vDSO {
-            range: Range {
-                start: 0,
-                end: 0,
-                writable: true,
+            avv: auxv::AuxVecValues {
+                vdso_base: 0,
+                page_size: 0x1000,
             },
             data: test_vdso,
         };
@@ -276,10 +245,9 @@ mod tests {
         let test_vdso =
             fs::read("src/test_files/test_vdso_elf_2").expect("Unable to read test file");
         let a = vDSO {
-            range: Range {
-                start: 0,
-                end: 0,
-                writable: true,
+            avv: auxv::AuxVecValues {
+                vdso_base: 0,
+                page_size: 0x1000,
             },
             data: test_vdso,
         };
