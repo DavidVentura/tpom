@@ -37,10 +37,8 @@ mod tests {
 
     #[test]
     #[serial]
-    fn it_works_after_putenv() {
-        unsafe {
-            libc::putenv(b"SOMETHING=VALUE\0".as_ptr() as *mut _);
-        }
+    fn it_works_after_setenv() {
+        std::env::set_var("SOMETHING", "VALUE");
         let v = vdso::vDSO::read().unwrap();
         let og = v
             .entry(Kind::GetTime)
