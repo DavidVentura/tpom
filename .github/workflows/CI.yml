@@ -12,9 +12,9 @@ jobs:
     runs-on: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
+#      - uses: actions-rs/toolchain@v1
+#        with:
+#          toolchain: stable
 #      - name: Set up cargo cache
 #        uses: actions/cache@v3
 #        continue-on-error: false
