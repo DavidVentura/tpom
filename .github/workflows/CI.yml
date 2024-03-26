@@ -6,24 +6,13 @@ jobs:
   build_and_test:
     name: Tests
     strategy:
+      # Each arch in the matrix may fail/succeed independently, do not
+      # cancel all runs on the first failure
+      fail-fast: false
       matrix:
         arch: [Arm64, x64, riscv64]
     #runs-on: [self-hosted, linux]
     runs-on: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
-#      - uses: actions-rs/toolchain@v1
-#        with:
-#          toolchain: stable
-#      - name: Set up cargo cache
-#        uses: actions/cache@v3
-#        continue-on-error: false
-#        with:
-#          path: |
-#            ~/.cargo/bin/
-#            ~/.cargo/registry/index/
-#            ~/.cargo/registry/cache/
-#            ~/.cargo/git/db/
-#            target/            
-#          key: ${{ runner.os }}-${{ matrix.arch }}-cargo-${{ hashFiles('**/Cargo.toml') }}-${{matrix.arch}}
       - run: cargo test
