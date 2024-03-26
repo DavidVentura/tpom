@@ -126,10 +126,23 @@ impl vDSO {
             let kind = match ds.name.as_str() {
                 // Per the man page:
                 // > "All of these symbols are also available without the "__vdso_" prefix, but you should ignore those."
+
+                #[cfg(target_arch = "aarch64")]
+                "__kernel_clock_gettime" => Some(Kind::GetTime),
+                #[cfg(target_arch = "aarch64")]
+                "__kernel_gettimeofday" => Some(Kind::GetTimeOfDay),
+                #[cfg(target_arch = "aarch64")]
+                "__kernel_clock_getres" => Some(Kind::ClockGetRes),
+
+                #[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
                 "__vdso_clock_gettime" => Some(Kind::GetTime),
+                #[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
                 "__vdso_gettimeofday" => Some(Kind::GetTimeOfDay),
+                #[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
                 "__vdso_clock_getres" => Some(Kind::ClockGetRes),
+                #[cfg(any(target_arch = "x86_64", target_arch = "riscv64"))]
                 "__vdso_time" => Some(Kind::Time),
+
                 &_ => None,
             };
             if kind.is_none() {
