@@ -107,11 +107,9 @@ impl vDSO {
     pub(crate) fn overwrite(&self, symbol_address: usize, opcodes: &[u8]) {
         let dst_addr = self.avv.vdso_base + symbol_address;
         self.change_mode(true);
-        for (i, b) in opcodes.iter().enumerate() {
-            unsafe {
-                std::ptr::write_bytes((dst_addr + i) as *mut u8, *b, 1);
-            }
-        }
+        unsafe {
+            std::ptr::copy_nonoverlapping(opcodes.as_ptr(), dst_addr as *mut u8, opcodes.len())
+        };
         self.change_mode(false);
     }
 
