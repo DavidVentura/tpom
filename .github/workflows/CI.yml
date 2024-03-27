@@ -10,7 +10,7 @@ jobs:
       # cancel all runs on the first failure
       fail-fast: false
       matrix:
-        arch: [Arm64, x64, riscv64]
+        arch: [Arm64, x86_64, riscv64]
     #runs-on: [self-hosted, linux]
     runs-on: ${{ matrix.arch }}
     steps:
