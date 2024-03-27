@@ -12,16 +12,14 @@ fn _generate_opcodes_riscv64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     let auipc_t0 = vec![0x97, 0x02, 0x00, 0x00]; // store PC at t0
     let ld_t0_plus12 = vec![0x03, 0xb3, 0xc2, 0x00]; // load PC+12 into t1
     let jr = vec![0x67, 0x00, 0x03, 0x00]; // jump to T1
-    let addr_bytes = jmp_target.to_be_bytes();
-    let addr_first_half = vec![addr_bytes[7], addr_bytes[6], addr_bytes[5], addr_bytes[4]];
-    let addr_second_half = vec![addr_bytes[3], addr_bytes[2], addr_bytes[1], addr_bytes[0]];
+    let addr_bytes = jmp_target.to_le_bytes().to_vec();
+
     let nop = vec![0x13, 0x0, 0x0, 0x0];
     let mut opcodes = [
         auipc_t0,
         ld_t0_plus12,
         jr,
-        addr_first_half,
-        addr_second_half,
+        addr_bytes
     ]
     .concat();
     while symbol_len > opcodes.len() {
@@ -55,17 +53,7 @@ fn _generate_opcodes_aarch64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
       18:	d503201f 	nop
     ```
     */
-    let _a_bytes = jmp_target.to_be_bytes().to_vec();
-    let addr_bytes = vec![
-        _a_bytes[7],
-        _a_bytes[6],
-        _a_bytes[5],
-        _a_bytes[4],
-        _a_bytes[3],
-        _a_bytes[2],
-        _a_bytes[1],
-        _a_bytes[0],
-    ];
+    let addr_bytes = jmp_target.to_le_bytes().to_vec();
 
     let ldr_x0_8 = vec![0x40, 0x00, 0x00, 0x58];
     let br_x0 = vec![0x00, 0x00, 0x1f, 0xd6];
