@@ -4,6 +4,7 @@ use goblin::strtab::Strtab;
 use core::slice;
 use std::error::Error;
 use std::fs;
+use cacheflush_sys;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct DynSym {
@@ -115,11 +116,10 @@ impl vDSO {
         // We need to clear the instruction cache, otherwise it's possible that the old
         // instructions (the trampoline) get executed with the new data (the original vDSO
         // function)
-        unsafe {
-            //doesn't exist ((
-            //libc::cacheflush(dst_addr, opcodes.len(), libc::BCACHE);
-        }
         self.change_mode(false);
+        unsafe {
+            cacheflush_sys::flush(dst_addr as *const u8, opcodes.len());
+        }
     }
 
     pub fn entry(&self, wanted: Kind) -> Option<impl TVDSOFun + '_> {

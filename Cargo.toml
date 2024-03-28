@@ -17,6 +17,7 @@ path = "src/lib.rs"
 name = "tpom"
 path = "src/bin.rs"
 [dependencies]
+cacheflush-sys = "0.1.0"
 ctor = "0.2.6"
 goblin = "0.6.0"
 libc = "0.2.151"
