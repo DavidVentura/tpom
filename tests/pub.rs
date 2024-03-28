@@ -1,9 +1,11 @@
 mod tests {
-    use serial_test::serial;
     use std::time::{SystemTime, Duration};
     use tpom::{vdso, Kind, TVDSOFun, TimeSpec};
     use std::thread;
     use std::hint::black_box;
+    use std::sync::Mutex;
+
+    static tm: Mutex<i32> = Mutex::new(0);
 
     fn myclock(_clockid: i32) -> TimeSpec {
         TimeSpec {
@@ -13,8 +15,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn regular_clock_produces_different_timestamps() {
+        let _guard = tm.lock().unwrap();
         let time_a = SystemTime::now();
         thread::sleep(std::time::Duration::from_millis(1)); // clock in github actions is coarse
         let time_b = SystemTime::now();
@@ -22,8 +24,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_freezes_system_clock() {
+        let _guard = tm.lock().unwrap();
         let v = vdso::vDSO::read().unwrap();
         let og = v
             .entry(Kind::GetTime)
@@ -39,8 +41,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_works_many_threads() {
+        let _guard = tm.lock().unwrap();
         let v = vdso::vDSO::read().unwrap();
         let og = v
             .entry(Kind::GetTime)
@@ -63,8 +65,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn it_works_after_setenv() {
+        let _guard = tm.lock().unwrap();
         std::env::set_var("SOMETHING", "VALUE");
         let v = vdso::vDSO::read().unwrap();
         let og = v
