@@ -16,7 +16,7 @@ pub(crate) struct DynSym {
 #[derive(Debug)]
 pub struct vDSO {
     avv: auxv::AuxVecValues,
-    data: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 #[cfg(target_pointer_width="32")]
@@ -106,6 +106,7 @@ impl vDSO {
     /// It is the caller's responsibility to provide the correct amount of data.
     pub(crate) fn overwrite(&self, symbol_address: usize, opcodes: &[u8]) {
         let dst_addr = self.avv.vdso_base + symbol_address;
+        println!("writing 0x{:x} bytes to 0x{dst_addr:x}", opcodes.len());
         self.change_mode(true);
         unsafe {
             std::ptr::copy_nonoverlapping(opcodes.as_ptr(), dst_addr as *mut u8, opcodes.len())

@@ -1,4 +1,6 @@
 use std::{error::Error, time::SystemTime};
+use std::fs::File;
+use std::io::prelude::*;
 
 use tpom::{vdso, Kind, Time, TimeSpec, TimeVal, TVDSOFun};
 
@@ -26,10 +28,26 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     println!("Now: {:?}", SystemTime::now());
     println!("Executing");
     let v = vdso::vDSO::read()?;
+    let mut f = File::create("original_vdso.elf").unwrap();
+    let mut f1 = File::create("overwritten_vdso.elf").unwrap();
+    let mut f2 = File::create("restored_vdso.elf").unwrap();
+    f.write_all(&v.data).unwrap();
+    f1.set_len(0);
+    f2.set_len(0);
+
     let og = v.entry(Kind::GetTime).ok_or("Could not find clock")?;
     let backup = og.overwrite(myclock);
-    println!("Done, Now: {:?}, restoring", SystemTime::now());
+    let overwritten = vdso::vDSO::read()?;
+
+    f1.write_all(&overwritten.data).unwrap();
+
+    println!("Done");
+    println!("Now: {:?}, restoring", SystemTime::now());
     backup.restore();
-    println!("Restored, Now: {:?}", SystemTime::now());
+    let restored = vdso::vDSO::read()?;
+    f2.write_all(&restored.data).unwrap();
+    println!("Restored");
+
+    println!("Now: {:?}", SystemTime::now());
     Ok(())
 }

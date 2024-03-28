@@ -23,7 +23,7 @@ fn _generate_opcodes_riscv64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     ]
     .concat();
     while symbol_len > opcodes.len() {
-        opcodes.append(&mut nop.clone());
+        opcodes.extend(&nop);
     }
     opcodes
 }
@@ -44,24 +44,25 @@ fn _generate_opcodes_aarch64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     which becomes
     ```
     0000000000000000 <_start>:
-       0:	58000040 	ldr	x0, 8 <_start+0x8>
-       4:	d61f0000 	br	x0
-       8:	56ff78ff 	.word	0x56ff78ff
-       c:	12ff34ff 	.word	0x12ff34ff
-      10:	d503201f 	nop
-      14:	d503201f 	nop
-      18:	d503201f 	nop
+       0:   58000080        ldr     x0, 10 <_start+0x10>
+       4:   d61f0000        br      x0
+       8:   d503201f        nop
+       c:   d503201f        nop
+      10:   56ff78ff        .word   0x56ff78ff
+      14:   12ff34ff        .word   0x12ff34ff
     ```
     */
     let addr_bytes = jmp_target.to_le_bytes().to_vec();
 
-    let ldr_x0_8 = vec![0x40, 0x00, 0x00, 0x58];
+    let ldr_x0_16 = vec![0x80, 0x00, 0x00, 0x58];
     let br_x0 = vec![0x00, 0x00, 0x1f, 0xd6];
     let nop = vec![0x1f, 0x20, 0x03, 0xd5];
 
-    let mut opcodes = [ldr_x0_8, br_x0, addr_bytes].concat();
-    while symbol_len > opcodes.len() {
-        opcodes.append(&mut nop.clone());
+    let mut opcodes = [ldr_x0_16, br_x0, nop.clone(), nop.clone(), addr_bytes].concat();
+    let mut count = 0;
+    while symbol_len > opcodes.len() && count < 5 {
+        opcodes.extend(&nop);
+        count += 1;
     }
     opcodes
 }
@@ -78,16 +79,17 @@ fn _generate_opcodes_x86_64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     */
     let mut addr_bytes = jmp_target.to_le_bytes().to_vec();
 
+    // TODO refactor
     // MOV RAX, <addr>
     let mut opcodes: Vec<u8> = vec![0x48, 0xB8];
-    opcodes.append(&mut addr_bytes);
+    opcodes.extend(&addr_bytes);
     // JMP
-    opcodes.append(&mut vec![0xFF, 0xE0]);
+    opcodes.extend(&vec![0xFF, 0xE0]);
     // NOP
     assert!(symbol_len >= opcodes.len());
     let padding_size = symbol_len - opcodes.len();
     let mut nops = vec![0x90u8; padding_size];
-    opcodes.append(&mut nops);
+    opcodes.extend(&nops);
 
     opcodes
 }
