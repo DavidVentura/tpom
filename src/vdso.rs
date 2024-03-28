@@ -111,6 +111,14 @@ impl vDSO {
         unsafe {
             std::ptr::copy_nonoverlapping(opcodes.as_ptr(), dst_addr as *mut u8, opcodes.len())
         };
+        // https://community.arm.com/arm-community-blogs/b/architectures-and-processors-blog/posts/caches-and-self-modifying-code
+        // We need to clear the instruction cache, otherwise it's possible that the old
+        // instructions (the trampoline) get executed with the new data (the original vDSO
+        // function)
+        unsafe {
+            //doesn't exist ((
+            //libc::cacheflush(dst_addr, opcodes.len(), libc::BCACHE);
+        }
         self.change_mode(false);
     }
 
