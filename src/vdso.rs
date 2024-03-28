@@ -4,6 +4,7 @@ use goblin::strtab::Strtab;
 use core::slice;
 use std::error::Error;
 use std::fs;
+use cacheflush_sys;
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct DynSym {
@@ -110,7 +111,14 @@ impl vDSO {
         unsafe {
             std::ptr::copy_nonoverlapping(opcodes.as_ptr(), dst_addr as *mut u8, opcodes.len())
         };
+        // https://community.arm.com/arm-community-blogs/b/architectures-and-processors-blog/posts/caches-and-self-modifying-code
+        // We need to clear the instruction cache, otherwise it's possible that the old
+        // instructions (the trampoline) get executed with the new data (the original vDSO
+        // function)
         self.change_mode(false);
+        unsafe {
+            cacheflush_sys::flush(dst_addr as *const u8, opcodes.len()).unwrap();
+        }
     }
 
     pub fn entry(&self, wanted: Kind) -> Option<impl TVDSOFun + '_> {
