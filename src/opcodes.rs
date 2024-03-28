@@ -1,3 +1,5 @@
+// TODO: maybe use inline asm + naked functions, then copy them directly?
+
 fn _generate_opcodes_riscv64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     /*
           0:   00000297                auipc   t0,0x0
@@ -17,7 +19,7 @@ fn _generate_opcodes_riscv64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     let nop = vec![0x13, 0x0, 0x0, 0x0];
     let mut opcodes = [auipc_t0, ld_t0_plus12, jr, addr_bytes].concat();
     while symbol_len > opcodes.len() {
-        opcodes.append(&mut nop.clone());
+        opcodes.extend(&nop);
     }
     opcodes
 }
@@ -55,7 +57,7 @@ fn _generate_opcodes_aarch64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
 
     let mut opcodes = [ldr_x0_8, br_x0, addr_bytes].concat();
     while symbol_len > opcodes.len() {
-        opcodes.append(&mut nop.clone());
+        opcodes.extend(&nop);
     }
     opcodes
 }
@@ -70,18 +72,16 @@ fn _generate_opcodes_x86_64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
       ```
       and copying them
     */
-    let mut addr_bytes = jmp_target.to_le_bytes().to_vec();
+    let addr_bytes = jmp_target.to_le_bytes().to_vec();
 
-    // MOV RAX, <addr>
-    let mut opcodes: Vec<u8> = vec![0x48, 0xB8];
-    opcodes.append(&mut addr_bytes);
-    // JMP
-    opcodes.append(&mut vec![0xFF, 0xE0]);
-    // NOP
-    assert!(symbol_len >= opcodes.len());
-    let padding_size = symbol_len - opcodes.len();
-    let mut nops = vec![0x90u8; padding_size];
-    opcodes.append(&mut nops);
+    let mov_rax_imm = vec![0x48, 0xB8];
+    let jmp = vec![0xFF, 0xE0];
+    let nop = vec![0x90u8];
+
+    let mut opcodes: Vec<u8> = vec![mov_rax_imm, addr_bytes, jmp].concat();
+    while symbol_len > opcodes.len() {
+        opcodes.extend(&nop);
+    }
 
     opcodes
 }
