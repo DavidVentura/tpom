@@ -1,9 +1,9 @@
 mod tests {
-    use std::time::{SystemTime, Duration};
-    use tpom::{vdso, Kind, TVDSOFun, TimeSpec};
-    use std::thread;
     use std::hint::black_box;
     use std::sync::Mutex;
+    use std::thread;
+    use std::time::{Duration, SystemTime};
+    use tpom::{vdso, Kind, TVDSOFun, TimeSpec};
 
     static tm: Mutex<i32> = Mutex::new(0);
 

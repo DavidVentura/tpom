@@ -15,13 +15,7 @@ fn _generate_opcodes_riscv64(jmp_target: usize, symbol_len: usize) -> Vec<u8> {
     let addr_bytes = jmp_target.to_le_bytes().to_vec();
 
     let nop = vec![0x13, 0x0, 0x0, 0x0];
-    let mut opcodes = [
-        auipc_t0,
-        ld_t0_plus12,
-        jr,
-        addr_bytes
-    ]
-    .concat();
+    let mut opcodes = [auipc_t0, ld_t0_plus12, jr, addr_bytes].concat();
     while symbol_len > opcodes.len() {
         opcodes.append(&mut nop.clone());
     }

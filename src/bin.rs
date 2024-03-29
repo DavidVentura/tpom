@@ -1,6 +1,6 @@
 use std::{error::Error, time::SystemTime};
 
-use tpom::{vdso, Kind, Time, TimeSpec, TimeVal, TVDSOFun};
+use tpom::{vdso, Kind, TVDSOFun, Time, TimeSpec, TimeVal};
 
 extern crate tpom;
 

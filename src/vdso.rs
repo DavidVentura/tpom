@@ -1,10 +1,10 @@
 use crate::*;
+use cacheflush_sys;
+use core::slice;
 use goblin::elf::*;
 use goblin::strtab::Strtab;
-use core::slice;
 use std::error::Error;
 use std::fs;
-use cacheflush_sys;
 use std::sync::Mutex;
 
 static vdso_mutex: Mutex<i32> = Mutex::new(0);
@@ -23,10 +23,10 @@ pub struct vDSO {
     data: Vec<u8>,
 }
 
-#[cfg(target_pointer_width="32")]
+#[cfg(target_pointer_width = "32")]
 const ELF_HDR_SIZE: usize = 52;
 
-#[cfg(target_pointer_width="64")]
+#[cfg(target_pointer_width = "64")]
 const ELF_HDR_SIZE: usize = 64;
 
 impl vDSO {
@@ -34,14 +34,20 @@ impl vDSO {
         let auxvec = auxv::read_aux_vec()?;
 
         // As the size of the vDSO is unknown, read first only the header which has constant size
-        let header_bytes: &[u8] = unsafe { slice::from_raw_parts(&*(auxvec.vdso_base as *const u8), ELF_HDR_SIZE) };
+        let header_bytes: &[u8] =
+            unsafe { slice::from_raw_parts(&*(auxvec.vdso_base as *const u8), ELF_HDR_SIZE) };
         let bare_header = Elf::parse_header(&header_bytes).unwrap();
         // Having parsed the header, we can now calculate the len of the vDSO
-        let vdso_len = usize::from(bare_header.e_shnum * bare_header.e_shentsize) + (bare_header.e_shoff as usize);
+        let vdso_len = usize::from(bare_header.e_shnum * bare_header.e_shentsize)
+            + (bare_header.e_shoff as usize);
         // And with the len, we can read the right amount
-        let vdso_bytes = unsafe { slice::from_raw_parts(&*(auxvec.vdso_base as *const u8), vdso_len) };
+        let vdso_bytes =
+            unsafe { slice::from_raw_parts(&*(auxvec.vdso_base as *const u8), vdso_len) };
 
-        Ok(vDSO {data: vdso_bytes.into(), avv: auxvec })
+        Ok(vDSO {
+            data: vdso_bytes.into(),
+            avv: auxvec,
+        })
     }
 
     pub(crate) fn change_mode(&self, write: bool) {
@@ -52,9 +58,9 @@ impl vDSO {
         };
         // As we need to mprotect() the vDSO and that can only be done in full pages, we need
         // to bump the vDSO length to the next page
-        let vdso_size_page_aligned = (self.data.len() + self.avv.page_size-1) & !(self.avv.page_size-1);
+        let vdso_size_page_aligned =
+            (self.data.len() + self.avv.page_size - 1) & !(self.avv.page_size - 1);
         unsafe {
-
             libc::mprotect(
                 self.avv.vdso_base as *mut libc::c_void,
                 vdso_size_page_aligned,
@@ -137,7 +143,6 @@ impl vDSO {
             let kind = match ds.name.as_str() {
                 // Per the man page:
                 // > "All of these symbols are also available without the "__vdso_" prefix, but you should ignore those."
-
                 #[cfg(target_arch = "aarch64")]
                 "__kernel_clock_gettime" => Some(Kind::GetTime),
                 #[cfg(target_arch = "aarch64")]

@@ -45,7 +45,7 @@ unsafe fn store_auxv() {
             if key == libc::AT_SYSINFO_EHDR as usize {
                 ptr = val;
             }
-            if key == libc::AT_PAGESZ as usize  {
+            if key == libc::AT_PAGESZ as usize {
                 pagesize = val;
             }
             out = out.offset(2);

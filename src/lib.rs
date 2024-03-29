@@ -40,10 +40,10 @@
 //! assert_ne!(time_c, time_d);
 //! ```
 
+pub mod auxv;
 mod opcodes;
 pub(crate) mod trampolines;
 pub mod vdso;
-pub mod auxv;
 
 use crate::trampolines::*;
 use crate::vdso::vDSO;
