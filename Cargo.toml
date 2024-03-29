@@ -19,9 +19,9 @@ path = "src/bin.rs"
 
 [dependencies]
 cacheflush-sys = "0.1.0"
-ctor = "0.2.6"
-goblin = "0.6.0"
+goblin = { version = "0.6.0", default-features = false, features = ["endian_fd", "elf32", "elf64"] }
 libc = "0.2.151"
+small_ctor = "0.1.1"
 
 [dev-dependencies]
 

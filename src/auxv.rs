@@ -1,5 +1,5 @@
+use small_ctor::ctor;
 use std::error::Error;
-use ctor::ctor;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AuxVecValues {
@@ -26,11 +26,13 @@ unsafe fn get_auxv_ptr() -> *const usize {
 }
 
 pub(crate) fn read_aux_vec() -> Result<AuxVecValues, Box<dyn Error>> {
-    Ok(*AUX)
+    Ok(unsafe { AUX.unwrap() })
 }
 //#[cfg_attr(any(target_os = "linux"), link_section = ".init_array")]
+static mut AUX: Option<AuxVecValues> = None; // TODO once?
+
 #[ctor]
-static AUX: AuxVecValues = {
+unsafe fn store_auxv() {
     // The auxiliary vector is an array of key:value tuples, represented as [usize, usize]
     // The end is delimited by having the key == AT_NULL
     let mut out = unsafe { get_auxv_ptr() };
@@ -55,6 +57,9 @@ static AUX: AuxVecValues = {
     if pagesize == 0 {
         panic!("Could not find page size");
     }
-    AuxVecValues {vdso_base: ptr, page_size: pagesize}
-};
 
+    AUX = Some(AuxVecValues {
+        vdso_base: ptr,
+        page_size: pagesize,
+    });
+}
